@@ -1,0 +1,11 @@
+# Runtime artifacts created at the project root (not inside tool/), but listed
+# here just in case anyone accidentally drops a log into tool/.
+*.log
+.watcher.lock
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

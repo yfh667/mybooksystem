@@ -1,0 +1,80 @@
+<script>
+(function() {
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+
+  // ---------- auto-reload on HTML change ----------
+  let lastHash = null;
+  let inFlight = false;
+  async function check() {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const r = await fetch(location.pathname + '?_=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const txt = await r.text();
+      const body = txt.indexOf('<body');
+      const h = body > 0 ? txt.slice(body).length + ':' + txt.slice(body, body + 4000) : txt.length;
+      if (lastHash === null) { lastHash = h; return; }
+      if (h !== lastHash) { location.reload(); }
+    } catch (e) {
+    } finally {
+      inFlight = false;
+    }
+  }
+  setInterval(check, 1200);
+
+  // ---------- Ctrl/Cmd+Click → jump to source .qmd in Positron ----------
+  const BLOCK_TAGS = new Set(['P','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','PRE','TD','TH','DT','DD','FIGCAPTION']);
+
+  function findBlock(node) {
+    let el = node;
+    while (el && el !== document.body) {
+      if (BLOCK_TAGS.has(el.tagName)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  async function jumpToSource(ev) {
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    const block = findBlock(ev.target);
+    if (!block) return;
+    ev.preventDefault();
+    const text = (block.textContent || '').trim();
+    if (text.length < 6) return;
+    try {
+      // Backend will both look up the file:line AND fire `positron --goto` to jump.
+      // Avoids the Simple Browser webview blocking the positron:// URL scheme.
+      const r = await fetch('/open-in-editor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await r.json();
+      if (data && data.found && data.file) {
+        showToast('→ ' + data.file.split(/[\\\/]/).pop() + ':' + data.line);
+      } else {
+        showToast('source not found');
+      }
+    } catch (e) { showToast('err: ' + e.message); }
+  }
+
+  function showToast(msg) {
+    let t = document.getElementById('__src_toast__');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '__src_toast__';
+      t.style.cssText = 'position:fixed;bottom:8px;left:8px;background:rgba(0,0,0,.75);' +
+        'color:#fff;font:12px monospace;padding:4px 10px;border-radius:4px;z-index:9999;' +
+        'pointer-events:none;transition:opacity .3s;';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._hide);
+    t._hide = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+  }
+
+  document.addEventListener('click', jumpToSource, true);
+})();
+</script>
