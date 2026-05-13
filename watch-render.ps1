@@ -4,6 +4,28 @@ $root    = (Get-Item $toolDir).Parent.FullName
 $port    = 4321
 $quartoExe = "C:\Program Files\Quarto\bin\quarto.exe"
 $lockFile  = Join-Path $root ".watcher.lock"
+$statusFile = Join-Path $root ".watcher-status.json"
+
+# Build counter increments on each successful HTML render.
+# Front-end uses this to decide when to reload the page.
+$script:BuildId = 0
+
+function Update-Status {
+    param([string]$State, [string]$Message = "")
+    $obj = [PSCustomObject]@{
+        state    = $State
+        message  = $Message
+        buildId  = $script:BuildId
+        ts       = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    try {
+        $json = $obj | ConvertTo-Json -Compress
+        # WriteAllText with UTF8Encoding($false) avoids the BOM that Set-Content emits in PS5.
+        [System.IO.File]::WriteAllText($statusFile, $json, [System.Text.UTF8Encoding]::new($false))
+    } catch {}
+}
+
+Update-Status "starting"
 
 Set-Location $root
 
@@ -38,7 +60,10 @@ Remove-Item (Join-Path $root "index.html"), `
 
 Remove-Item (Join-Path $root ".quarto\project-cache") -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Initial render..." -ForegroundColor Cyan
+Update-Status "rendering-html" "initial render"
 & $quartoExe render --to html 2>$null | Out-Null
+$script:BuildId++
+Update-Status "idle"
 Write-Host "Initial render done." -ForegroundColor Green
 
 Write-Host "Starting static server on port $port..." -ForegroundColor Cyan
@@ -113,18 +138,25 @@ try {
 
         # --- Step 0: regenerate auto-includes from folder structure ---
         Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] gen-includes..." -ForegroundColor DarkGray
+        Update-Status "scanning" "gen-includes"
         & node "$toolDir\gen-includes.js" 2>&1 | Out-Null
 
         # --- Step 1: HTML render (fast, updates live preview) ---
         Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] rendering HTML..." -ForegroundColor Yellow
+        Update-Status "rendering-html" "$($change.Name)"
         $htmlOut = & $quartoExe render --to html 2>&1
         $htmlCode = $LASTEXITCODE
         $stamp = (Get-Date).ToString('HH:mm:ss')
         if ($htmlCode -eq 0) {
             Write-Host "[$stamp] HTML OK" -ForegroundColor Green
+            $script:BuildId++
+            # Mark HTML as fresh so browser can reload, then proceed to PDF
+            Update-Status "rendering-pdf" "html ok, building pdf"
         } else {
             Write-Host "[$stamp] HTML FAILED (exit=$htmlCode)" -ForegroundColor Red
             $htmlOut | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkRed }
+            $errLines = ($htmlOut | Select-Object -Last 3) -join ' | '
+            Update-Status "error" "HTML render failed: $errLines"
         }
 
         # Drain Quarto's self-touches before PDF
@@ -139,10 +171,13 @@ try {
             $stamp = (Get-Date).ToString('HH:mm:ss')
             if ($pdfCode -eq 0) {
                 Write-Host "[$stamp] PDF OK -> _pdf/test.pdf`n" -ForegroundColor Green
+                Update-Status "idle"
             } else {
                 Write-Host "[$stamp] PDF FAILED (exit=$pdfCode)" -ForegroundColor Red
                 $pdfOut | Select-Object -Last 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkRed }
                 Write-Host ""
+                $errLines = ($pdfOut | Select-Object -Last 3) -join ' | '
+                Update-Status "error" "PDF render failed: $errLines"
             }
         }
 
@@ -152,6 +187,7 @@ try {
 }
 finally {
     Write-Host "Stopping server..." -ForegroundColor Cyan
+    Update-Status "stopped"
     if ($serverProc -and -not $serverProc.HasExited) {
         Stop-Process -Id $serverProc.Id -Force -ErrorAction SilentlyContinue
     }

@@ -280,6 +280,17 @@ function readWithRetry(filePath, maxAttempts, cb) {
 http.createServer((req, res) => {
   let p = decodeURIComponent(url.parse(req.url).pathname);
 
+  // GET /status → current watcher state JSON (consumed by autoreload.html)
+  if (p === '/status') {
+    const statusFile = path.join(PROJECT_ROOT, '.watcher-status.json');
+    fs.readFile(statusFile, 'utf8', (err, data) => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      if (err) return res.end('{"state":"unknown"}');
+      res.end(data);
+    });
+    return;
+  }
+
   // POST /open-in-editor  { text: "..." }  → { found, file, line }
   //   Finds the .qmd source for the given text snippet and opens Positron at that line.
   if (p === '/open-in-editor' && req.method === 'POST') {
