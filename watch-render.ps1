@@ -83,7 +83,12 @@ $watcher.NotifyFilter = [System.IO.NotifyFilters]::LastWrite -bor `
     [System.IO.NotifyFilters]::Size
 
 Write-Host "Watching *.qmd in $root" -ForegroundColor Cyan
+Write-Host "Also polling _quarto.yml for changes" -ForegroundColor Cyan
 Write-Host "" -ForegroundColor Cyan
+
+# Track _quarto.yml separately - FileSystemWatcher's Filter only matches one pattern.
+$quartoYml = Join-Path $root "_quarto.yml"
+$ymlMtime = if (Test-Path $quartoYml) { (Get-Item $quartoYml).LastWriteTime } else { [DateTime]::MinValue }
 
 function Drain-WatcherEvents {
     param($w, [int]$WindowMs = 200)
@@ -119,12 +124,29 @@ function Wait-FileQuiet {
 
 try {
     while ($true) {
-        # Block until first event
+        # Block until first event (or timeout to poll _quarto.yml)
         $change = $watcher.WaitForChanged([System.IO.WatcherChangeTypes]::All, 1000)
-        if ($change.TimedOut) { continue }
+
+        # Always check _quarto.yml mtime; treat it like a qmd change if it moved.
+        $ymlChanged = $false
+        if (Test-Path $quartoYml) {
+            $curr = (Get-Item $quartoYml).LastWriteTime
+            if ($curr -gt $ymlMtime) {
+                $ymlMtime = $curr
+                $ymlChanged = $true
+            }
+        }
+
+        if ($change.TimedOut -and -not $ymlChanged) { continue }
 
         $now = Get-Date
-        Write-Host "[$($now.ToString('HH:mm:ss'))] event: $($change.ChangeType) $($change.Name)" -ForegroundColor DarkYellow
+        if ($ymlChanged) {
+            Write-Host "[$($now.ToString('HH:mm:ss'))] event: _quarto.yml changed" -ForegroundColor DarkYellow
+            # Wait briefly to ensure yml editor finished writing before render reads it.
+            Start-Sleep -Milliseconds 300
+        } else {
+            Write-Host "[$($now.ToString('HH:mm:ss'))] event: $($change.ChangeType) $($change.Name)" -ForegroundColor DarkYellow
+        }
 
         # Drain any rapid follow-up events (atomic save can fire several events back-to-back)
         $drained = Drain-WatcherEvents -w $watcher -WindowMs 250
@@ -132,8 +154,9 @@ try {
             Write-Host "         (drained $drained extra event(s))" -ForegroundColor DarkGray
         }
 
-        # Wait until ALL qmd files are quiet (no writes in last 600ms)
-        $changedPath = Join-Path $root $change.Name
+        # Wait until the changed file is quiet (no writes in last 600ms)
+        $changedName = if ($ymlChanged) { "_quarto.yml" } else { $change.Name }
+        $changedPath = Join-Path $root $changedName
         Wait-FileQuiet -Path $changedPath
 
         # --- Step 0: regenerate auto-includes from folder structure ---
@@ -143,7 +166,7 @@ try {
 
         # --- Step 1: HTML render (fast, updates live preview) ---
         Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] rendering HTML..." -ForegroundColor Yellow
-        Update-Status "rendering-html" "$($change.Name)"
+        Update-Status "rendering-html" "$changedName"
         $htmlOut = & $quartoExe render --to html 2>&1
         $htmlCode = $LASTEXITCODE
         $stamp = (Get-Date).ToString('HH:mm:ss')

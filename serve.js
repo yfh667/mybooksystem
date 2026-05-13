@@ -412,21 +412,36 @@ window.addEventListener('mousemove', e => {
     return;
   }
 
-  // PDF files served from _pdf/  (with retry to survive render swap window)
+  // PDF files served from _pdf/  (with retry to survive render swap window).
+  // The book's PDF is named after `book.title` in _quarto.yml, so we don't hard-code
+  // the filename. For any /_pdf/*.pdf request, we look up whatever .pdf currently
+  // lives in _pdf/ and serve that.
   if (p.startsWith('/_pdf/')) {
-    const rel = p.slice('/_pdf/'.length);
-    const filePath = path.join(PDF_DIR, rel);
-    if (!filePath.startsWith(PDF_DIR)) { res.writeHead(403); return res.end(); }
+    function resolveActualPdf(cb) {
+      let tries = 0;
+      const tryFind = () => {
+        try {
+          const files = fs.readdirSync(PDF_DIR).filter(f => f.toLowerCase().endsWith('.pdf'));
+          if (files.length > 0) {
+            // Pick the most recently modified .pdf in _pdf/
+            const sorted = files
+              .map(f => ({ f, m: fs.statSync(path.join(PDF_DIR, f)).mtimeMs }))
+              .sort((a, b) => b.m - a.m);
+            return cb(null, path.join(PDF_DIR, sorted[0].f));
+          }
+        } catch {}
+        tries++;
+        if (tries >= 90) return cb(new Error('no pdf'));
+        setTimeout(tryFind, 200);
+      };
+      tryFind();
+    }
 
     if (req.method === 'HEAD') {
-      let tries = 0;
-      const tryStat = () => {
-        fs.stat(filePath, (err, st) => {
-          if (err) {
-            tries++;
-            if (tries < 90) return setTimeout(tryStat, 200); // up to ~18s
-            res.writeHead(404); return res.end();
-          }
+      resolveActualPdf((err, filePath) => {
+        if (err) { res.writeHead(404); return res.end(); }
+        fs.stat(filePath, (e, st) => {
+          if (e) { res.writeHead(404); return res.end(); }
           res.writeHead(200, {
             'Content-Type': 'application/pdf',
             'Content-Length': st.size,
@@ -435,21 +450,26 @@ window.addEventListener('mousemove', e => {
           });
           res.end();
         });
-      };
-      tryStat();
+      });
       return;
     }
 
-    readWithRetry(filePath, 90, (err, data) => {
+    resolveActualPdf((err, filePath) => {
       if (err) {
         res.writeHead(404, {'Content-Type': 'text/plain; charset=utf-8'});
-        return res.end('Not found: ' + p);
+        return res.end('No PDF available in _pdf/');
       }
-      res.writeHead(200, {
-        'Content-Type': 'application/pdf',
-        'Cache-Control': 'no-store',
+      fs.readFile(filePath, (e, data) => {
+        if (e) {
+          res.writeHead(404, {'Content-Type': 'text/plain; charset=utf-8'});
+          return res.end('Error reading PDF: ' + e.message);
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Cache-Control': 'no-store',
+        });
+        res.end(data);
       });
-      res.end(data);
     });
     return;
   }
