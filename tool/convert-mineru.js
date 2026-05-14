@@ -11,7 +11,7 @@
 //   1. Finds the .md file in the target folder.
 //   2. Bootstraps the folder as a Quarto project if not already
 //      (copies _quarto.yml, index.qmd, references.bib, ieee.csl,
-//       autoreload.html, .gitignore, .vscode/settings.json from the
+//       autoreload.html, .vscode/settings.json from the
 //       central mukuai folder, but NOT the tool/ folder).
 //   3. Auto-detects which importer to use:
 //        - has any H2 (## ...) heading → import-paper.js

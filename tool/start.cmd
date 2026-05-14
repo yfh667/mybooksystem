@@ -25,7 +25,7 @@ cd /d "%ROOT%"
 set PROJECT_ROOT=%ROOT%
 
 echo Starting watcher for project: %ROOT%
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PROJECT_ROOT='%ROOT%'; Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%TOOL%watch-render.ps1' -WorkingDirectory '%ROOT%' -WindowStyle Hidden -RedirectStandardOutput '%ROOT%\watcher.log' -RedirectStandardError '%ROOT%\watcher.err.log'"
+start "qmdtool watcher" /min cmd /d /c "cd /d "%ROOT%" && set "PROJECT_ROOT=%ROOT%" && powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOL%watch-render.ps1" > "%ROOT%\watcher.log" 2> "%ROOT%\watcher.err.log""
 
 echo.
 echo Watcher started in background.
@@ -35,5 +35,5 @@ echo   * Preview:    http://localhost:4321/split
 echo   * Live log:   Get-Content "%ROOT%\watcher.log" -Wait -Tail 20
 echo   * Stop:       "%TOOL%stop.cmd" "%ROOT%"
 echo.
-timeout /t 4 >nul
+ping 127.0.0.1 -n 4 >nul
 endlocal

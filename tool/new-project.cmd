@@ -40,8 +40,11 @@ copy /y "%MUKUAI%\_quarto.yml"     "%TARGET%\" >nul && echo   [OK] _quarto.yml
 copy /y "%MUKUAI%\index.qmd"        "%TARGET%\" >nul && echo   [OK] index.qmd
 copy /y "%MUKUAI%\references.bib"   "%TARGET%\" >nul && echo   [OK] references.bib
 copy /y "%MUKUAI%\ieee.csl"         "%TARGET%\" >nul && echo   [OK] ieee.csl
-copy /y "%MUKUAI%\.gitignore"       "%TARGET%\" >nul && echo   [OK] .gitignore
 copy /y "%TOOL%autoreload.html"     "%TARGET%\" >nul && echo   [OK] autoreload.html
+
+if not exist "%TARGET%\qmd" (
+    mkdir "%TARGET%\qmd" >nul && echo   [OK] qmd\
+)
 
 if exist "%MUKUAI%\.vscode" (
     xcopy /e /i /q /y "%MUKUAI%\.vscode" "%TARGET%\.vscode\" >nul && echo   [OK] .vscode\settings.json

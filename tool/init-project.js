@@ -6,26 +6,21 @@
 //   index.qmd              ← Preface placeholder
 //   qmd/                   ← empty, ready for `node tool/import-paper.js` or manual content
 //   .vscode/settings.json  ← paste-image behavior
-//   .gitignore             ← excludes _book/, _pdf/, log files, etc.
 //
 // Usage:
 //   node tool/init-project.js <target-dir>            (uses local tool/ as source)
-//   node tool/init-project.js <target-dir> --git      (git clone tool from GitHub)
 
 const fs   = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const args = process.argv.slice(2);
-const useGit = args.includes('--git');
 const target = args.find(a => !a.startsWith('--'));
 if (!target) {
-  console.error('Usage: node init-project.js <target-dir> [--git]');
+  console.error('Usage: node init-project.js <target-dir>');
   process.exit(1);
 }
 
 const targetAbs = path.resolve(target);
-const TOOL_REPO = 'https://github.com/yfh667/mybooksystem.git';
 
 console.log(`Bootstrapping Quarto book project at: ${targetAbs}`);
 fs.mkdirSync(targetAbs, { recursive: true });
@@ -34,14 +29,14 @@ fs.mkdirSync(targetAbs, { recursive: true });
 const targetTool = path.join(targetAbs, 'tool');
 if (fs.existsSync(targetTool)) {
   console.log(`  tool/ already exists, skipping.`);
-} else if (useGit) {
-  console.log(`  Cloning tool/ from ${TOOL_REPO}...`);
-  execSync(`git clone --depth=1 "${TOOL_REPO}" "${targetTool}"`, { stdio: 'inherit' });
-  // remove .git so it's not a nested repo (user can re-init if they want)
-  fs.rmSync(path.join(targetTool, '.git'), { recursive: true, force: true });
 } else {
   console.log(`  Copying tool/ from ${__dirname}...`);
-  copyDirRecursive(__dirname, targetTool, name => name === '.git' || name === 'node_modules');
+  copyDirRecursive(__dirname, targetTool, name =>
+    name === '.git' ||
+    name === '.gitignore' ||
+    name === '.gitmodules' ||
+    name === 'node_modules'
+  );
 }
 
 // ---------- _quarto.yml ----------
@@ -140,30 +135,6 @@ const cslPath  = path.join(targetAbs, 'ieee.csl');
 if (!fs.existsSync(cslPath) && fs.existsSync(cslLocal)) {
   fs.copyFileSync(cslLocal, cslPath);
   console.log('  Copied ieee.csl');
-}
-
-// ---------- .gitignore ----------
-const giPath = path.join(targetAbs, '.gitignore');
-if (!fs.existsSync(giPath)) {
-  fs.writeFileSync(giPath, `# Quarto outputs
-_book/
-_pdf/
-.quarto/
-.quarto-preview.*.log
-
-# Runtime artifacts
-.watcher.lock
-.watcher-status.json
-watcher.log
-watcher.err.log
-server.log
-server.err.log
-
-# OS / editor
-.DS_Store
-Thumbs.db
-`);
-  console.log('  Wrote .gitignore');
 }
 
 console.log(`

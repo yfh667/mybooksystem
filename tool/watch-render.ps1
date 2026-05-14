@@ -52,13 +52,21 @@ Set-Content -Path $lockFile -Value $PID -Force
 
 # Kill stale render/serve helpers (not other powershell sessions!)
 Get-Process | Where-Object { $_.Name -match "quarto|deno" } | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | ForEach-Object {
-    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+try {
+    Get-NetTCPConnection -LocalPort $port -ErrorAction Stop | ForEach-Object {
+        Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-Host "Skipping port cleanup: $($_.Exception.Message)" -ForegroundColor DarkGray
 }
-Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -eq "node.exe" -and $_.CommandLine -match "serve\.js"
-} | ForEach-Object {
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+try {
+    Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.Name -eq "node.exe" -and $_.CommandLine -match "serve\.js"
+    } | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-Host "Skipping stale node cleanup: $($_.Exception.Message)" -ForegroundColor DarkGray
 }
 Start-Sleep -Seconds 2
 
@@ -70,6 +78,9 @@ Remove-Item (Join-Path $root "index.html"), `
 
 Remove-Item (Join-Path $root ".quarto\project-cache") -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Initial render..." -ForegroundColor Cyan
+Write-Host "Scanning content tree..." -ForegroundColor DarkGray
+Update-Status "scanning" "gen-includes"
+& node "$toolDir\gen-includes.js" 2>&1 | Out-Null
 Update-Status "rendering-html" "initial render"
 & $quartoExe render --to html 2>$null | Out-Null
 $script:BuildId++
