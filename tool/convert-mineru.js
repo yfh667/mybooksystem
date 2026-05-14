@@ -53,7 +53,13 @@ const TOOL_DIR = __dirname;
 if (!fs.existsSync(path.join(target, '_quarto.yml'))) {
   console.log('Bootstrapping project (copying templates from mukuai)...');
   const newProj = path.join(TOOL_DIR, 'new-project.cmd');
-  spawnSync(newProj, [target], { stdio: 'inherit', shell: false });
+  // shell: true is required so cmd.exe handles the .cmd extension on Windows
+  const r = spawnSync(newProj, [target], { stdio: 'inherit', shell: true });
+  if (r.status !== 0 || !fs.existsSync(path.join(target, '_quarto.yml'))) {
+    console.error('Bootstrap failed. Re-run manually:');
+    console.error(`  "${newProj}" "${target}"`);
+    process.exit(1);
+  }
 } else {
   console.log('Project already bootstrapped (found _quarto.yml).');
 }
