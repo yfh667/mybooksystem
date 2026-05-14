@@ -109,8 +109,29 @@ function classifyHeading(text) {
     const depth = num[1].split('.').length;
     return { kind: 'section', depth, num: num[1], title: num[2].trim() };
   }
-  // Letter prefix: "a. 标题"  or "(a) 标题"
-  if (/^\(?[a-zA-Z]\)?\.?\s+\S/.test(t)) {
+  // IEEE-paper style: roman numeral chapter (I. II. III. ... up to XX)
+  // and single uppercase letter subsection (A. B. C. ...).
+  // MinerU flattens these to H1; the hierarchy is in the text prefix.
+  const ROMAN = new Set([
+    'I','II','III','IV','V','VI','VII','VIII','IX','X',
+    'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
+  ]);
+  const upper = t.match(/^([A-Z]+)\.\s+(.+)$/);
+  if (upper) {
+    if (ROMAN.has(upper[1])) {
+      return { kind: 'section', depth: 1, num: upper[1], title: upper[2].trim() };
+    }
+    if (upper[1].length === 1) {
+      return { kind: 'section', depth: 2, num: upper[1], title: upper[2].trim() };
+    }
+    // Multi-char non-roman uppercase (e.g. "MIMO"): fall through.
+  }
+  // English IEEE-paper top-level sections without numbering.
+  if (/^(?:references|abstract|conclusion|acknowledg(?:e?)ments?|index|appendix|bibliography)\s*$/i.test(t)) {
+    return { kind: 'section', depth: 1, num: '', title: t };
+  }
+  // Lowercase letter prefix (sub-sub-item): "a. 标题"  or "(a) 标题"
+  if (/^\(?[a-z]\)?\.?\s+\S/.test(t)) {
     return { kind: 'section', depth: 5, num: null, title: t };
   }
 
