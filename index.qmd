@@ -1,0 +1,12 @@
+# Preface {.unnumbered}
+
+This is the cover page of the book. Edit `_quarto.yml` to change the
+title and author. Add chapters by:
+
+- Dropping a MinerU `.md` next to this file and running
+  `node tool/import-paper.js <file.md> paper` (for IEEE papers)
+  or `node tool/import-textbook.js <file.md> paper` (for textbooks)
+- Creating files manually under `qmd/<chapter>/<chapter>.qmd` and
+  listing them in `_quarto.yml` under `book.chapters`
+
+See `tool/README.md` for the full workflow.

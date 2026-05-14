@@ -1,0 +1,10 @@
+{
+  "markdown.copyFiles.destination": {
+    "**/*.qmd": "images/${fileName}",
+    "**/*.md":  "images/${fileName}"
+  },
+  "markdown.editor.filePaste.enabled": true,
+  "markdown.editor.drop.enabled": true,
+  "markdown.editor.filePaste.copyIntoWorkspace": "mediaFiles",
+  "markdown.editor.drop.copyIntoWorkspace": "mediaFiles"
+}

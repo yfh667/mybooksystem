@@ -57,20 +57,36 @@ function updateMarkers(file, includes) {
   }
 }
 
+function findContentUnits(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const childDir = path.join(dir, entry.name);
+    const qmdFile = path.join(childDir, entry.name + '.qmd');
+    if (isFile(qmdFile)) out.push(qmdFile);
+    findContentUnits(childDir, out);
+  }
+  return out;
+}
+
+function hasContentUnitAncestor(qmdFile) {
+  let dir = path.dirname(path.dirname(qmdFile));
+  while (dir.startsWith(ROOT_QMD) && dir !== ROOT_QMD) {
+    const parentName = path.basename(dir);
+    if (isFile(path.join(dir, parentName + '.qmd'))) return true;
+    dir = path.dirname(dir);
+  }
+  return false;
+}
+
 if (!isDir(ROOT_QMD)) { console.log('No qmd/ folder, skipping.'); process.exit(0); }
 
-// Top-level chapter detection: each immediate subfolder Y of qmd/ that contains Y/Y.qmd
-const chapterFolders = fs.readdirSync(ROOT_QMD, { withFileTypes: true })
-  .filter(e => e.isDirectory())
-  .map(e => e.name)
+const chapters = findContentUnits(ROOT_QMD)
+  .filter(qmdFile => !hasContentUnitAncestor(qmdFile))
   .sort();
 
 let count = 0;
-for (const folder of chapterFolders) {
-  const chapter = path.join(ROOT_QMD, folder, folder + '.qmd');
-  if (isFile(chapter)) {
-    processQmd(chapter, path.dirname(chapter));
-    count++;
-  }
+for (const chapter of chapters) {
+  processQmd(chapter, path.dirname(chapter));
+  count++;
 }
 console.log(`gen-includes: processed ${count} chapter file(s).`);

@@ -44,7 +44,7 @@ let content = fs.readFileSync(srcPath, 'utf8');
 const looksLikeCitation = s => {
   const t = s.trim();
   if (/^\[?\d+\]?(\s*[,;\-–]\s*\[?\d+\]?)*$/.test(t)) return true;
-  if (/^\[\d+\]\(#ref-\d+\)$/.test(t)) return true;
+  if (/^\[\d{1,3}\]\(#ref-\d{1,3}\)$/.test(t)) return true;
   return false;
 };
 content = content.replace(/\\\(([\s\S]+?)\\\)/g, (full, m) => looksLikeCitation(m) ? m : `$${m}$`);
@@ -55,18 +55,20 @@ content = content.replace(/<\/?details>/g, '');
 content = content.replace(/<summary>[^<]*<\/summary>/g, '');
 content = content.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
 content = content.replace(/```mermaid[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n');
+content = content.replace(/\n\$\$\s*\\begin\{array\}c(?:\s+c){20,}\s*\$\$\n/g, '\n\n');
 
 // (Citations in textbooks are usually less structured than papers; keep [N]→link
 // handling but tolerate the references section being missing.)
 content = (function processCitations(s) {
   const m = s.match(/\n(#{1,6})\s+(?:references|参考文献)\b[^\n]*\n/i);
-  if (!m) return s.replace(/\[(\d+)\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`);
+  if (!m) return s.replace(/\[(\d{1,3})\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`);
   const cut = m.index + m[0].length;
   const before  = s.slice(0, cut);
   const refsBody = s.slice(cut);
-  const anchored = refsBody.replace(/(^|\n)\[(\d+)\]/g, (_, p, n) => `${p}[${n}]{#ref-${n}}`);
-  return before.replace(/\[(\d+)\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`) + anchored;
+  const anchored = refsBody.replace(/(^|\n)\[(\d{1,3})\]/g, (_, p, n) => `${p}[${n}]{#ref-${n}}`);
+  return before.replace(/\[(\d{1,3})\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`) + anchored;
 })(content);
+content = content.replace(/\s*\$\^\{([^$]*#ref-[^$]*)\}\$/g, (_, refs) => ` ${refs}`);
 
 // ----------------------------------------------------------------------
 // Parse heading text → classification
@@ -81,6 +83,9 @@ function classifyHeading(text) {
   //   bare trailing digits after numbered prefix: "5.3 标题 209"
   if (/(?:\.{2,}|…{1,})\s*\d+\s*$/.test(t)) return { kind: 'toc' };
   if (/^(?:第\s*\d+\s*章|附录\s*[A-Za-z]?|\d+(?:\.\d+){0,3})\b[\s\S]*\s\d+\s*$/.test(t)) {
+    return { kind: 'toc' };
+  }
+  if (/^(?:前言|译者的话|序|后记|致谢)\s+[IVXLCDM]+\s*$/i.test(t)) {
     return { kind: 'toc' };
   }
 
@@ -105,9 +110,13 @@ function classifyHeading(text) {
     return { kind: 'section', depth: 5, num: null, title: t };
   }
 
-  // Front-matter
-  if (/^(?:内容简介|前言|序|后记|附录|图书在版编目|致谢|目录)/.test(t)) {
+  // Front matter that should live on the book landing page, not as full chapters.
+  if (/^(?:内容简介|图书在版编目|目录)/.test(t)) {
     return { kind: 'front-matter', title: t };
+  }
+  // Front matter that readers expect as a real book chapter.
+  if (/^(?:前言|译者的话|序|后记|致谢)/.test(t)) {
+    return { kind: 'preface', title: t };
   }
   // Bare (book title repeats, chapter sub-titles in 2-line form, etc.)
   return { kind: 'bare', text: t };
@@ -171,13 +180,17 @@ function parseTextbook(md) {
   const stack = [root];
   for (const s of filtered) {
     let level;
-    if (s.cls.kind === 'bare') level = 1;
+    if (s.cls.kind === 'bare') {
+      const parent = stack[stack.length - 1];
+      level = parent && parent.level >= 2 ? Math.min(6, parent.level + 1) : 1;
+    }
     else if (s.cls.kind === 'front-matter') level = 2;
+    else if (s.cls.kind === 'preface') level = 2;
     else if (s.cls.kind === 'section') level = Math.min(6, s.cls.depth + 1);
     else continue;
 
     while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
-    const node = { level, title: s.title, body: s.body, children: [] };
+    const node = { level, title: s.title, body: s.body, children: [], cls: s.cls };
     stack[stack.length - 1].children.push(node);
     stack.push(node);
   }
@@ -234,13 +247,158 @@ function writeNode(node, dir, fileSlug, depth) {
   }
 }
 
+function cloneWithLevelShift(node, shift) {
+  return {
+    ...node,
+    level: Math.min(6, Math.max(1, node.level + shift)),
+    children: node.children.map(child => cloneWithLevelShift(child, shift)),
+  };
+}
+
+function adjustChapterImagePaths(node) {
+  return {
+    ...node,
+    body: node.body.map(line => line
+      .replace(/(!\[[^\]]*\]\()images\//g, '$1../images/')
+      .replace(/(<img\b[^>]*\bsrc=["'])images\//gi, '$1../images/')),
+    children: node.children.map(adjustChapterImagePaths),
+  };
+}
+
+function writeIndex(bookNode, frontMatterNodes) {
+  const indexPath = path.join(PROJECT_ROOT, 'index.qmd');
+  const parts = [`# ${bookNode.title}`];
+  const coverBody = bookNode.body.join('\n').replace(/^\n+|\n+$/g, '');
+  if (coverBody) parts.push(coverBody);
+
+  for (const node of frontMatterNodes) {
+    const body = node.body.join('\n').replace(/^\n+|\n+$/g, '');
+    parts.push(`## ${node.title}${body ? `\n\n${body}` : ''}`);
+  }
+
+  fs.writeFileSync(indexPath, parts.join('\n\n') + '\n');
+}
+
+function collectBookChapters(bookNode) {
+  const frontMatterNodes = [];
+  const chapterNodes = [];
+
+  const visit = node => {
+    if (node.cls && node.cls.kind === 'front-matter') {
+      frontMatterNodes.push(node);
+      return;
+    }
+    if (node.cls && node.cls.kind === 'preface') {
+      chapterNodes.push(node);
+      return;
+    }
+    if (node.cls && node.cls.kind === 'section' && node.cls.depth === 1) {
+      chapterNodes.push(node);
+      return;
+    }
+    for (const child of node.children || []) visit(child);
+  };
+
+  for (const child of bookNode.children || []) visit(child);
+
+  return { frontMatterNodes, chapterNodes };
+}
+
+function collectBookChaptersFrom(nodes) {
+  return collectBookChapters({ children: nodes });
+}
+
+function writeBookChapters(chapterNodes) {
+  fs.mkdirSync(chapterRoot, { recursive: true });
+  const chapterFiles = [];
+  for (let i = 0; i < chapterNodes.length; i++) {
+    const chapter = chapterNodes[i];
+    const slug = slugify(chapter.title, i);
+    const shifted = cloneWithLevelShift(chapter, 1 - chapter.level);
+    writeNode(adjustChapterImagePaths(shifted), path.join(chapterRoot, slug), slug, 0);
+    chapterFiles.push(`qmd/${chapterSlug}/${slug}/${slug}.qmd`);
+  }
+  return chapterFiles;
+}
+
+function updateQuartoChapters(chapterFiles) {
+  const ymlPath = path.join(PROJECT_ROOT, '_quarto.yml');
+  if (!fs.existsSync(ymlPath)) return false;
+
+  const lines = fs.readFileSync(ymlPath, 'utf8').split(/\r?\n/);
+  const chaptersIdx = lines.findIndex(line => /^\s{2}chapters\s*:/.test(line));
+  if (chaptersIdx < 0) return false;
+
+  let endIdx = chaptersIdx + 1;
+  while (endIdx < lines.length) {
+    const line = lines[endIdx];
+    if (line.trim() === '') {
+      endIdx++;
+      continue;
+    }
+    if (/^\s{4}-\s+/.test(line)) {
+      endIdx++;
+      continue;
+    }
+    if (/^\s{2}\S/.test(line) || /^\S/.test(line)) break;
+    endIdx++;
+  }
+
+  const existing = lines
+    .slice(chaptersIdx + 1, endIdx)
+    .map(line => line.match(/^\s{4}-\s+(.+?)\s*$/))
+    .filter(Boolean)
+    .map(match => match[1])
+    .filter(item => item !== 'index.qmd' && !item.startsWith(`qmd/${chapterSlug}/`));
+
+  const replacement = [
+    '    - index.qmd',
+    ...existing.map(item => `    - ${item}`),
+    ...chapterFiles.map(item => `    - ${item}`),
+  ];
+
+  lines.splice(chaptersIdx + 1, endIdx - chaptersIdx - 1, ...replacement);
+  fs.writeFileSync(ymlPath, lines.join('\n'));
+  return true;
+}
+
+function updateQuartoBookTitle(title) {
+  const ymlPath = path.join(PROJECT_ROOT, '_quarto.yml');
+  if (!fs.existsSync(ymlPath)) return false;
+
+  const lines = fs.readFileSync(ymlPath, 'utf8').split(/\r?\n/);
+  const titleIdx = lines.findIndex(line => /^\s{2}title\s*:/.test(line));
+  if (titleIdx < 0) return false;
+
+  const escaped = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  lines[titleIdx] = `  title: "${escaped}"`;
+  fs.writeFileSync(ymlPath, lines.join('\n'));
+  return true;
+}
+
+function disableQuartoNumberSections() {
+  const ymlPath = path.join(PROJECT_ROOT, '_quarto.yml');
+  if (!fs.existsSync(ymlPath)) return false;
+
+  const lines = fs.readFileSync(ymlPath, 'utf8').split(/\r?\n/);
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s{4}number-sections\s*:\s*true\s*$/.test(lines[i])) {
+      lines[i] = lines[i].replace(/true\s*$/, 'false');
+      changed = true;
+    }
+  }
+  if (changed) fs.writeFileSync(ymlPath, lines.join('\n'));
+  return changed;
+}
+
 // ----------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------
 const root = parseTextbook(content);
 
-// Treat the book title (first bare heading) as the root chapter; fallback if missing
-let bookNode = root.children.find(c => c.level === 1);
+// Treat the first bare heading as the book title; fallback if missing.
+let bookNode = root.children.find(c => c.level === 1 && c.cls && c.cls.kind === 'bare');
 if (!bookNode) {
   // No book title detected — synthesize one from the first heading
   bookNode = {
@@ -248,14 +406,11 @@ if (!bookNode) {
     title: path.basename(srcPath, '.md'),
     body: [],
     children: root.children,
+    cls: { kind: 'bare', text: path.basename(srcPath, '.md') },
   };
 }
-// Anything else at level 1 becomes a child of the book node (chapters / front-matter)
-const otherLevel1 = root.children.filter(c => c !== bookNode);
-for (const o of otherLevel1) {
-  o.level = 2; // demote front-matter / chapters to be children of the book
-  bookNode.children.push(o);
-}
+const sourceNodes = root.children.filter(c => c !== bookNode);
+const { frontMatterNodes, chapterNodes } = collectBookChaptersFrom([...bookNode.children, ...sourceNodes]);
 
 if (fs.existsSync(chapterRoot)) {
   console.error(`Target already exists: ${chapterRoot}`);
@@ -264,10 +419,12 @@ if (fs.existsSync(chapterRoot)) {
 }
 
 console.log(`Importing textbook: "${bookNode.title}"`);
-console.log(`  Top-level chapters / front-matter: ${bookNode.children.length}`);
+console.log(`  Index front-matter sections: ${frontMatterNodes.length}`);
+console.log(`  Book chapters: ${chapterNodes.length}`);
 console.log(`  Target: qmd/${chapterSlug}/`);
 
-writeNode(bookNode, chapterRoot, chapterSlug, 0);
+writeIndex(bookNode, frontMatterNodes);
+const chapterFiles = writeBookChapters(chapterNodes);
 
 // Copy images
 if (fs.existsSync(srcImagesDir)) {
@@ -279,31 +436,10 @@ if (fs.existsSync(srcImagesDir)) {
   console.log(`  Copied ${files.length} image(s)`);
 }
 
-// Auto-add to _quarto.yml
-const ymlPath = path.join(PROJECT_ROOT, '_quarto.yml');
-const chapterLine = `    - qmd/${chapterSlug}/${chapterSlug}.qmd`;
-let addedToYml = false;
-if (fs.existsSync(ymlPath)) {
-  const yml = fs.readFileSync(ymlPath, 'utf8');
-  if (yml.includes(chapterLine.trim())) {
-    addedToYml = 'already-present';
-  } else {
-    const lines = yml.split(/\r?\n/);
-    let inChapters = false, lastIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^\s*chapters\s*:/.test(lines[i])) { inChapters = true; continue; }
-      if (inChapters) {
-        if (/^\s{2,4}-\s+/.test(lines[i])) lastIdx = i;
-        else if (lines[i].trim() !== '' && !/^\s/.test(lines[i])) break;
-      }
-    }
-    if (lastIdx >= 0) {
-      lines.splice(lastIdx + 1, 0, chapterLine);
-      fs.writeFileSync(ymlPath, lines.join('\n'));
-      addedToYml = true;
-    }
-  }
-}
+// Auto-update _quarto.yml
+const updatedYml = updateQuartoChapters(chapterFiles);
+const updatedTitle = updateQuartoBookTitle(bookNode.title);
+const disabledNumbering = disableQuartoNumberSections();
 
 // Run gen-includes to populate AUTO-INCLUDES blocks
 console.log('  Populating auto-includes...');
@@ -313,7 +449,11 @@ try {
 } catch (e) { console.log(`  ! gen-includes failed: ${e.message}`); }
 
 console.log('\nDone.');
-if (addedToYml === true) console.log('  ✓ Added to _quarto.yml book.chapters');
-else if (addedToYml === 'already-present') console.log('  • Already in _quarto.yml');
-else console.log(`  ! Add to _quarto.yml manually:\n      ${chapterLine.trim()}`);
+if (updatedYml) console.log('  Updated _quarto.yml book.chapters');
+else {
+  console.log('  ! Add these to _quarto.yml manually:');
+  for (const f of chapterFiles) console.log(`      - ${f}`);
+}
+if (updatedTitle) console.log('  Updated _quarto.yml book.title');
+if (disabledNumbering) console.log('  Disabled Quarto auto-numbering for textbook headings');
 console.log('\nProject is ready. Start the watcher to render.\n');
