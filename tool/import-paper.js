@@ -276,6 +276,18 @@ if (fs.existsSync(ymlPath)) {
   }
 }
 
+// Group paper-style subfigures such as Fig. 7(a)-(d), dropping MinerU's
+// chart OCR tables from the visible reading flow.
+console.log(`  Grouping subfigures...`);
+try {
+  require('child_process').execSync(
+    `node "${path.join(__dirname, 'group-subfigures.js')}"`,
+    { cwd: PROJECT_ROOT, stdio: 'inherit' }
+  );
+} catch (e) {
+  console.log(`  ! group-subfigures failed: ${e.message}`);
+}
+
 // Populate AUTO-INCLUDES blocks right now (don't wait for the watcher's first save)
 console.log(`  Populating auto-includes...`);
 try {
