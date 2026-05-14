@@ -16,6 +16,36 @@ const path = require('path');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const target = process.argv[2];
 
+function htmlTableToPipe(table) {
+  const rows = [];
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m;
+  while ((m = trRe.exec(table)) !== null) {
+    const cells = [];
+    const cellRe = /<(t[dh])[^>]*>([\s\S]*?)<\/\1>/gi;
+    let c;
+    while ((c = cellRe.exec(m[1])) !== null) {
+      const txt = c[2]
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .replace(/\|/g, '\\|')
+        .trim();
+      cells.push(txt);
+    }
+    if (cells.length) rows.push(cells);
+  }
+  if (!rows.length) return table;
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (const r of rows) while (r.length < maxCols) r.push('');
+  const sep = Array(maxCols).fill('---');
+  const out = [];
+  out.push('| ' + rows[0].join(' | ') + ' |');
+  out.push('| ' + sep.join(' | ') + ' |');
+  for (let i = 1; i < rows.length; i++) out.push('| ' + rows[i].join(' | ') + ' |');
+  return '\n' + out.join('\n') + '\n';
+}
+
 function normalize(txt) {
   // Math delimiters
   txt = txt.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$${m}$`);
@@ -25,6 +55,9 @@ function normalize(txt) {
   txt = txt.replace(/<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/g, '$1');
   txt = txt.replace(/<\/?details>/g, '');
   txt = txt.replace(/<summary>[^<]*<\/summary>/g, '');
+
+  // Convert raw HTML tables to markdown pipe-tables
+  txt = txt.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
 
   return txt;
 }
