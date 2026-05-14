@@ -114,6 +114,13 @@ let content = fs.readFileSync(srcPath, 'utf8');
 content = content.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$${m}$`);
 content = content.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`);
 
+// MinerU wraps tables and code blocks in <details><summary>label</summary>…</details>
+// which hides content by default in HTML and is unsupported in LaTeX/PDF.
+// Strip the wrapper and keep the inner content.
+content = content.replace(/<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/g, '$1');
+content = content.replace(/<\/?details>/g, '');
+content = content.replace(/<summary>[^<]*<\/summary>/g, '');
+
 const root = parse(content);
 
 // We expect exactly one H1 = chapter
