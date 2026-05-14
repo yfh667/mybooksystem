@@ -148,11 +148,43 @@ if (fs.existsSync(srcImagesDir)) {
   console.log('  (no images/ folder next to source .md, skipped)');
 }
 
+// Try to auto-insert the chapter line into _quarto.yml (under book.chapters)
+const ymlPath = path.join(PROJECT_ROOT, '_quarto.yml');
+const chapterLine = `    - qmd/${chapterSlug}/${chapterSlug}.qmd`;
+let addedToYml = false;
+if (fs.existsSync(ymlPath)) {
+  const yml = fs.readFileSync(ymlPath, 'utf8');
+  if (yml.includes(chapterLine.trim())) {
+    addedToYml = 'already-present';
+  } else {
+    // Insert after the LAST existing line in book.chapters list (lines starting with "    - " under chapters:)
+    const lines = yml.split(/\r?\n/);
+    let inChapters = false, lastIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*chapters\s*:/.test(lines[i])) { inChapters = true; continue; }
+      if (inChapters) {
+        if (/^\s{2,4}-\s+/.test(lines[i])) { lastIdx = i; }
+        else if (lines[i].trim() !== '' && !/^\s/.test(lines[i])) { break; }
+      }
+    }
+    if (lastIdx >= 0) {
+      lines.splice(lastIdx + 1, 0, chapterLine);
+      fs.writeFileSync(ymlPath, lines.join('\n'));
+      addedToYml = true;
+    }
+  }
+}
+
 console.log(`
-Done.
-
-Next step — add this line to _quarto.yml under book.chapters:
-  - qmd/${chapterSlug}/${chapterSlug}.qmd
-
-Then save (watcher will auto-rebuild). The auto-includes will populate themselves.
+Done.`);
+if (addedToYml === true) {
+  console.log(`  ✓ Added to _quarto.yml book.chapters`);
+} else if (addedToYml === 'already-present') {
+  console.log(`  • Already listed in _quarto.yml`);
+} else {
+  console.log(`  ! Could not auto-edit _quarto.yml. Add this line manually under book.chapters:`);
+  console.log(`      ${chapterLine.trim()}`);
+}
+console.log(`
+Save any .qmd to trigger render. The auto-includes will populate themselves.
 `);
