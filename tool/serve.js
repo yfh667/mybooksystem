@@ -6,13 +6,15 @@ const { spawn } = require('child_process');
 
 const POSITRON_CLI = 'C:\\Program Files\\Positron\\bin\\positron.cmd';
 
-// Project layout:
-//   <project-root>/tool/serve.js      ← this file
-//   <project-root>/_book/             ← Quarto HTML output
-//   <project-root>/_pdf/              ← Quarto PDF output
-//   <project-root>/qmd/               ← user content
-//   <project-root>/tool/_pdfjs/       ← PDF.js dist (lives with the tool)
-const PROJECT_ROOT = path.join(__dirname, '..');
+// Two modes of operation:
+//   EMBEDDED (legacy): tool/ lives inside the project; project root is __dirname/..
+//   CENTRAL  (new):    tool/ lives in a shared mukuai folder; project root is
+//                      passed via the PROJECT_ROOT env var by start.cmd /
+//                      watch-render.ps1.
+// _pdfjs/ always lives with the tool (it's vendor code, not project data).
+const PROJECT_ROOT = process.env.PROJECT_ROOT
+  ? path.resolve(process.env.PROJECT_ROOT)
+  : path.join(__dirname, '..');
 const BOOK_DIR = path.join(PROJECT_ROOT, '_book');
 const PDF_DIR = path.join(PROJECT_ROOT, '_pdf');
 const QMD_DIR  = path.join(PROJECT_ROOT, 'qmd');

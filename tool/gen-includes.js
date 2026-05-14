@@ -7,8 +7,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// gen-includes.js lives in tool/; qmd/ is at the project root (one level up).
-const ROOT_QMD = path.join(__dirname, '..', 'qmd');
+// Project root resolution:
+//   - PROJECT_ROOT env var if set (central tool/ mode), else __dirname/..
+//     (legacy embedded mode where tool/ is inside the project).
+const PROJECT_ROOT = process.env.PROJECT_ROOT
+  ? path.resolve(process.env.PROJECT_ROOT)
+  : (fs.existsSync(path.join(process.cwd(), '_quarto.yml'))
+      ? process.cwd()
+      : path.join(__dirname, '..'));
+const ROOT_QMD = path.join(PROJECT_ROOT, 'qmd');
 const BEGIN = '<!-- AUTO-INCLUDES-BEGIN -->';
 const END   = '<!-- AUTO-INCLUDES-END -->';
 

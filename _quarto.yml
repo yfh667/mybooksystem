@@ -25,7 +25,7 @@ format:
     number-sections: true
     search: true
     include-in-header:
-      - tool/autoreload.html
+      - autoreload.html
   pdf:
     pdf-engine: xelatex
     mainfont: "Times New Roman"

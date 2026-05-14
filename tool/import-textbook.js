@@ -30,7 +30,11 @@ if (!fs.existsSync(srcPath)) {
   process.exit(1);
 }
 
-const PROJECT_ROOT  = path.join(__dirname, '..');
+const PROJECT_ROOT  = process.env.PROJECT_ROOT
+  ? path.resolve(process.env.PROJECT_ROOT)
+  : (fs.existsSync(path.join(process.cwd(), '_quarto.yml'))
+      ? process.cwd()
+      : path.join(__dirname, '..'));
 const srcDir        = path.dirname(srcPath);
 const srcImagesDir  = path.join(srcDir, 'images');
 const chapterRoot   = path.join(PROJECT_ROOT, 'qmd', chapterSlug);

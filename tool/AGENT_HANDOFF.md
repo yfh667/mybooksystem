@@ -83,11 +83,47 @@ That's it — `init-project.js` is not needed; templates are in the clone.
 
 | Path | Role |
 |------|------|
-| `C:\Users\Administrator\mybooksystem` | **Repo source-of-truth — edit + push from here** |
+| `C:\Users\Administrator\mybooksystem` | **Repo source-of-truth — edit + push from here** (this is `mukuai` in the central-mode docs) |
 | `C:\Users\Administrator\my-knowledge` | Original dev / personal notes; `tool/` is a script copy |
 | `C:\Users\Administrator\Desktop\Performance_Analysis_...IsOWC_45000_km` | English IEEE paper, MinerU-imported |
 | `C:\Users\Administrator\Desktop\book1\hybrid_auto` | Chinese textbook |
 | `C:\user\test2` | Chinese textbook (Codex's working project for the textbook-as-real-book refactor) |
+
+### 2.4 Two operation modes
+
+**EMBEDDED mode** (older, still supported):
+- Each project has its own `tool/` folder (a copy of the central one)
+- Scripts use `$PSScriptRoot/..` / `__dirname/..` to find project root
+- Editing tool/ scripts only affects that one project
+- Pros: project is self-contained, can `cp -r` to another machine
+- Cons: copies of tool/ go stale; updates need to be propagated manually
+
+**CENTRAL mode** (recommended for users with many projects):
+- One shared `mukuai/tool/` (the clone of this repo)
+- Each project only has its per-project files (`_quarto.yml`, `index.qmd`,
+  `references.bib`, `ieee.csl`, `autoreload.html`, `.vscode/settings.json`,
+  `.gitignore`)
+- Scripts find project root via the `PROJECT_ROOT` env var (set by
+  `start.cmd`, `new-project.cmd`, etc.)
+- Pros: single source of truth, edits flow to all projects on next
+  watcher restart
+- Cons: requires the central path to exist (machine-specific)
+
+All scripts auto-detect: if `PROJECT_ROOT` env var is set, use it
+(central mode); otherwise fall back to `__dirname/..` (embedded mode).
+
+CLI entry points for the central flow:
+
+| Command | Purpose |
+|---------|---------|
+| `mukuai\tool\new-project.cmd <target>` | Copy templates into a new project folder |
+| `mukuai\tool\start.cmd <project>` | Start watcher for that project |
+| `mukuai\tool\stop.cmd <project>` | Stop watcher |
+| `node mukuai\tool\import-paper.js   <md> <slug>` | Import in cwd's project (use `cd` first or set PROJECT_ROOT) |
+| `node mukuai\tool\import-textbook.js <md> <slug>` | Same, for textbooks |
+
+All cmd wrappers accept `.` to mean "current directory" and accept no
+argument to mean "parent of tool/" (legacy embedded behavior).
 
 ---
 
@@ -915,6 +951,22 @@ In rough chronological order:
     their `tool/` script copies (no `.git/`) and continue to function; to
     propagate new scripts into them, `Copy-Item -Recurse -Force
     <repo>\tool\* <old-project>\tool\`.
+
+28. **Central tool/ mode added** so that one shared mukuai folder can drive
+    many projects without copying tool/ into each. All scripts now check the
+    `PROJECT_ROOT` env var: if set, that is the project root; if unset, fall
+    back to `__dirname/..` (legacy embedded mode where tool/ is inside the
+    project). `start.cmd` and `stop.cmd` accept an optional project path as
+    the first argument and set the env var before spawning the watcher; the
+    watcher exports it again so `node serve.js` sees it. `new-project.cmd`
+    copies template files (NOT tool/) from the central module into a new
+    project folder. The template `_quarto.yml` now references
+    `autoreload.html` (project-local) instead of `tool/autoreload.html`,
+    since central mode does not put tool/ inside the project. Old projects
+    that still have `tool/` embedded keep working because their
+    `_quarto.yml` keeps the `tool/autoreload.html` path and their
+    `tool/start.cmd` invocation without args uses the legacy `%~dp0..`
+    behavior.
 
 ---
 

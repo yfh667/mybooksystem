@@ -1,10 +1,20 @@
-# This script lives in <project-root>/tool/. Derive the project root from $PSScriptRoot.
+# Two modes:
+#   EMBEDDED: this script lives in <project>/tool/, project root is $PSScriptRoot/..
+#   CENTRAL:  this script lives in a shared mukuai/tool/, project root is supplied
+#             via the PROJECT_ROOT env var by start.cmd.
 $toolDir = $PSScriptRoot
-$root    = (Get-Item $toolDir).Parent.FullName
+if ($env:PROJECT_ROOT -and (Test-Path $env:PROJECT_ROOT)) {
+    $root = (Get-Item $env:PROJECT_ROOT).FullName
+} else {
+    $root = (Get-Item $toolDir).Parent.FullName
+}
 $port    = 4321
 $quartoExe = "C:\Program Files\Quarto\bin\quarto.exe"
 $lockFile  = Join-Path $root ".watcher.lock"
 $statusFile = Join-Path $root ".watcher-status.json"
+
+# Make sure child processes (node serve.js) see PROJECT_ROOT too
+$env:PROJECT_ROOT = $root
 
 # Build counter increments on each successful HTML render.
 # Front-end uses this to decide when to reload the page.
