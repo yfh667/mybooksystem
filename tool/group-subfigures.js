@@ -142,10 +142,38 @@ function figureBlock(caption, images) {
   images.forEach((img, i) => {
     const letter = caption.letters[i] || String.fromCharCode(97 + i);
     out.push(`![(${letter})](${img.src}){#${figId}${letter}}`);
+    out.push('');
   });
   out.push(caption.line.trim());
   out.push(':::');
   return out;
+}
+
+function normalizeFigureDivSpacing(lines) {
+  let changed = false;
+  let inFigure = false;
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^:::\s*\{#fig-/.test(line)) inFigure = true;
+
+    out.push(line);
+
+    if (inFigure && imageOf(line)) {
+      const next = lines[i + 1] || '';
+      if (next.trim() !== '') {
+        out.push('');
+        changed = true;
+      }
+    }
+
+    if (inFigure && /^:::\s*$/.test(line)) inFigure = false;
+  }
+
+  if (!changed) return false;
+  lines.splice(0, lines.length, ...out);
+  return true;
 }
 
 function isFigureCaptionLine(line) {
@@ -185,7 +213,8 @@ function stripImageOcrTables(lines) {
 
 function processMarkdown(text) {
   const lines = text.split(/\r?\n/);
-  let changed = stripImageOcrTables(lines);
+  let changed = normalizeFigureDivSpacing(lines);
+  if (stripImageOcrTables(lines)) changed = true;
 
   for (let i = 0; i < lines.length; i++) {
     const caption = isCaption(lines[i]);

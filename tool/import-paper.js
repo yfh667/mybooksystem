@@ -288,6 +288,18 @@ try {
   console.log(`  ! group-subfigures failed: ${e.message}`);
 }
 
+// Keep every qmd self-contained: image links become images/<file>, and the
+// files are copied into a sibling images/ folder beside that qmd.
+console.log(`  Localizing images...`);
+try {
+  require('child_process').execSync(
+    `node "${path.join(__dirname, 'localize-images.js')}"`,
+    { cwd: PROJECT_ROOT, stdio: 'inherit' }
+  );
+} catch (e) {
+  console.log(`  ! localize-images failed: ${e.message}`);
+}
+
 // Populate AUTO-INCLUDES blocks right now (don't wait for the watcher's first save)
 console.log(`  Populating auto-includes...`);
 try {
