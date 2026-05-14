@@ -121,12 +121,13 @@ function slugify(title, idx) {
   let s = title.toLowerCase();
   // Strip a leading "I.", "II.", "1.", "A.", "B." style numbering
   s = s.replace(/^(?:[ivxlcdm]+|[a-z]|[0-9]+)[\.\)]\s+/i, '');
-  // Replace anything not alphanumeric with hyphen
-  s = s.replace(/[^a-z0-9]+/g, '-');
+  // Keep letters (any script, including CJK) and numbers, replace everything else with hyphen
+  s = s.replace(/[^\p{L}\p{N}]+/gu, '-');
   s = s.replace(/-+/g, '-').replace(/^-|-$/g, '');
-  // Truncate at word boundary if too long
-  if (s.length > 35) {
-    s = s.slice(0, 35).replace(/-[^-]*$/, '');
+  // Truncate at ~20 chars (CJK chars are each 1 char but take more visual space).
+  // Latin slug "effect-of-different-operating" was 30+ chars; let's allow up to 25.
+  if (s.length > 25) {
+    s = s.slice(0, 25).replace(/-[^-]*$/, '') || s.slice(0, 25);
   }
   if (!s) s = 'section';
   return `${String(idx + 1).padStart(2, '0')}-${s}`;
