@@ -175,6 +175,17 @@ if (fs.existsSync(ymlPath)) {
   }
 }
 
+// Populate AUTO-INCLUDES blocks right now (don't wait for the watcher's first save)
+console.log(`  Populating auto-includes...`);
+try {
+  require('child_process').execSync(
+    `node "${path.join(__dirname, 'gen-includes.js')}"`,
+    { cwd: PROJECT_ROOT, stdio: 'inherit' }
+  );
+} catch (e) {
+  console.log(`  ! gen-includes failed: ${e.message}`);
+}
+
 console.log(`
 Done.`);
 if (addedToYml === true) {
@@ -186,5 +197,5 @@ if (addedToYml === true) {
   console.log(`      ${chapterLine.trim()}`);
 }
 console.log(`
-Save any .qmd to trigger render. The auto-includes will populate themselves.
+Project is ready. Start the watcher to render HTML + PDF.
 `);
