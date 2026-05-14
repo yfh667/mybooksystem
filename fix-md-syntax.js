@@ -46,10 +46,33 @@ function htmlTableToPipe(table) {
   return '\n' + out.join('\n') + '\n';
 }
 
-function normalize(txt) {
-  // Math delimiters
-  txt = txt.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$${m}$`);
-  txt = txt.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`);
+function normalize(txt, file) {
+  // Repair: previous runs of this script wrapped inline citations in $...$ or
+  // $$...$$ which Pandoc-LaTeX could not handle. Undo those.
+  txt = txt.replace(/\$\\\[\[(\d+)\]\(#ref-(\d+)\)\\\]\$/g, '\\[[$1](#ref-$2)\\]');
+  txt = txt.replace(/\$\[(\d+)\]\$/g, '[$1]');
+  txt = txt.replace(/\n?\$\$\s*\\?\[?\[(\d+)\]\(#ref-(\d+)\)\\?\]?\s*\$\$\n?/g, '\\[[$1](#ref-$2)\\]');
+  txt = txt.replace(/\n?\$\$\s*\[(\d+)\]\s*\$\$\n?/g, '[$1]');
+
+  // Math delimiters — but if the content is just a citation pattern (bare or
+  // already-linked), MinerU mis-wrapped a citation as math; strip the wrapper
+  // rather than converting it to $...$ / $$...$$.
+  const looksLikeCitation = s => {
+    const t = s.trim();
+    if (/^\[?\d+\]?(\s*[,;\-–]\s*\[?\d+\]?)*$/.test(t)) return true;
+    if (/^\[\d+\]\(#ref-\d+\)$/.test(t)) return true;
+    return false;
+  };
+  // \(...\) with citation content: strip wrapper, leave bare [N] for the linker.
+  // \[...\] with citation content: KEEP wrapper — those are escaped brackets that
+  // render as the IEEE-style "[N]" markers in the final output.
+  txt = txt.replace(/\\\(([\s\S]+?)\\\)/g, (full, m) => looksLikeCitation(m) ? m : `$${m}$`);
+  txt = txt.replace(/\\\[([\s\S]+?)\\\]/g, (full, m) => looksLikeCitation(m) ? full : `\n$$\n${m.trim()}\n$$\n`);
+
+  // Repair: previous runs of this script may have stripped the outer \[...\]
+  // brackets, leaving bare "[N](#ref-N)" citation links without IEEE-style
+  // brackets. Re-wrap them.
+  txt = txt.replace(/(?<!\\\[)\[(\d+)\]\(#ref-(\d+)\)(?!\\\])/g, '\\[[$1](#ref-$2)\\]');
 
   // Strip <details><summary>...</summary>...</details> wrappers, keep inner content
   txt = txt.replace(/<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/g, '$1');
@@ -59,13 +82,26 @@ function normalize(txt) {
   // Convert raw HTML tables to markdown pipe-tables
   txt = txt.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
 
+  // Drop MinerU's auto-generated Mermaid blocks (figure already inserted as image)
+  txt = txt.replace(/```mermaid[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n');
+
+  // Hyperlink citations. Files whose name contains "references" are treated as
+  // the bibliography: each [N] at line start becomes a {#ref-N} anchor.
+  // Other files: [N] in body text becomes \[[N](#ref-N)\].
+  const isRefs = /references/i.test(path.basename(file));
+  if (isRefs) {
+    txt = txt.replace(/(^|\n)\[(\d+)\](?!\{#ref-)/g, (_, p, n) => `${p}[${n}]{#ref-${n}}`);
+  } else {
+    txt = txt.replace(/\[(\d+)\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`);
+  }
+
   return txt;
 }
 
 function fixOne(file) {
   let txt;
   try { txt = fs.readFileSync(file, 'utf8'); } catch { return false; }
-  const next = normalize(txt);
+  const next = normalize(txt, file);
   if (next !== txt) {
     fs.writeFileSync(file, next);
     return true;

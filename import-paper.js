@@ -38,6 +38,26 @@ const chapterRoot   = path.join(PROJECT_ROOT, 'qmd', chapterSlug);
 const chapterImages = path.join(chapterRoot, 'images');
 
 // -----------------------------------------------------------------------
+// Hyperlink IEEE-style [N] citations.
+//   * In the REFERENCES section (heading "References" at any depth),
+//     anchor each [N] at line start as [N]{#ref-N}.
+//   * Everywhere else, rewrite [N] as \[[N](#ref-N)\] so the visible text
+//     stays "[N]" but the number is a clickable link.
+// -----------------------------------------------------------------------
+function linkCitations(txt) {
+  return txt.replace(/\[(\d+)\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`);
+}
+function processCitations(content) {
+  const m = content.match(/\n(#{1,6})\s+references\b[^\n]*\n/i);
+  if (!m) return linkCitations(content);
+  const cut = m.index + m[0].length;
+  const before  = content.slice(0, cut);
+  const refsBody = content.slice(cut);
+  const anchored = refsBody.replace(/(^|\n)\[(\d+)\]/g, (_, p, n) => `${p}[${n}]{#ref-${n}}`);
+  return linkCitations(before) + anchored;
+}
+
+// -----------------------------------------------------------------------
 // Convert a simple HTML table to a markdown pipe-table.
 // Handles <table>, <tr>, <td>, <th> with no attributes / colspan.
 // -----------------------------------------------------------------------
@@ -147,8 +167,20 @@ let content = fs.readFileSync(srcPath, 'utf8');
 // MinerU emits math as \(...\) and \[...\]. Pandoc-to-LaTeX treats those as
 // literal brackets, not math, so PDF render fails. Convert to $...$ / $$...$$
 // which Pandoc handles correctly across HTML and PDF.
-content = content.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$${m}$`);
-content = content.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`);
+//
+// BUT: MinerU also wraps inline citations like "[9]" inside \( \), which are
+// not actually math. If the wrapped content is just a bracketed-number list,
+// strip the wrapper instead — the citation linker handles it later.
+const looksLikeCitation = s => {
+  const t = s.trim();
+  if (/^\[?\d+\]?(\s*[,;\-–]\s*\[?\d+\]?)*$/.test(t)) return true;
+  if (/^\[\d+\]\(#ref-\d+\)$/.test(t)) return true;
+  return false;
+};
+content = content.replace(/\\\(([\s\S]+?)\\\)/g, (full, m) =>
+  looksLikeCitation(m) ? m : `$${m}$`);
+content = content.replace(/\\\[([\s\S]+?)\\\]/g, (full, m) =>
+  looksLikeCitation(m) ? full : `\n$$\n${m.trim()}\n$$\n`);
 
 // MinerU wraps tables and code blocks in <details><summary>label</summary>…</details>
 // which hides content by default in HTML and is unsupported in LaTeX/PDF.
@@ -161,6 +193,15 @@ content = content.replace(/<summary>[^<]*<\/summary>/g, '');
 // HTML output passes those through, but Pandoc-LaTeX drops them on the floor,
 // so PDF has missing tables. Convert to markdown pipe-tables (works in both).
 content = content.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
+
+// MinerU sometimes recreates a figure as a Mermaid diagram in addition to
+// inserting the actual image. The Mermaid version is usually broken nonsense
+// and we already have the real image — drop it.
+content = content.replace(/```mermaid[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n');
+
+// Hyperlink IEEE-style [N] citations. Anchor each entry in the REFERENCES
+// section so [N] in body text can link to it.
+content = processCitations(content);
 
 const root = parse(content);
 
