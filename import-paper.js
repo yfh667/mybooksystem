@@ -106,7 +106,14 @@ function writeNode(node, dir, fileSlug, depth) {
 // -----------------------------------------------------------------------
 // Main
 // -----------------------------------------------------------------------
-const content = fs.readFileSync(srcPath, 'utf8');
+let content = fs.readFileSync(srcPath, 'utf8');
+
+// MinerU emits math as \(...\) and \[...\]. Pandoc-to-LaTeX treats those as
+// literal brackets, not math, so PDF render fails. Convert to $...$ / $$...$$
+// which Pandoc handles correctly across HTML and PDF.
+content = content.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => `$${m}$`);
+content = content.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => `\n$$\n${m.trim()}\n$$\n`);
+
 const root = parse(content);
 
 // We expect exactly one H1 = chapter
