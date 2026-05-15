@@ -9,12 +9,16 @@
 //   <chart/table OCR output>
 //   Fig. 8. (a) ... (b) ...
 //
-// Rewrites them as:
-//   ::: {#fig-8 layout-ncol=2}
-//   ![(a)](image-a.jpg){#fig-8a}
-//   ![(b)](image-b.jpg){#fig-8b}
-//   Fig. 8. ...
-//   :::
+// Rewrites them as an HTML/PDF-friendly markdown table:
+//   | ![](image-a.jpg) | ![](image-b.jpg) |
+//   | --- | --- |
+//   | *(a)* | *(b)* |
+//
+//   **Fig. 8. ...**
+//
+// We intentionally do NOT use ids like #fig-8. Quarto treats #fig-* as its
+// own cross-reference target and renumbers it as "Figure 4.1", which is not
+// what paper imports want. Papers should keep their original "Fig. 8." label.
 
 const fs = require('fs');
 const path = require('path');
@@ -46,8 +50,16 @@ function imageOf(line) {
   return { alt: m[1], src: m[2] };
 }
 
+function imageOfAnywhere(line) {
+  const out = [];
+  const re = /!\[([^\]]*)\]\(([^)]+)\)(?:\{[^}]*\})?/g;
+  let m;
+  while ((m = re.exec(line)) !== null) out.push({ alt: m[1], src: m[2] });
+  return out;
+}
+
 function isCaption(line) {
-  const m = line.match(/^\s*Fig\.?\s*(\d+)\.\s+(.+)$/i);
+  const m = line.match(/^\s*(?:Fig\.?|Figure)\s*(\d+)\.\s+(.+)$/i);
   if (!m) return null;
   const letters = [...line.matchAll(/\(([a-z])\)/gi)]
     .map(x => x[1].toLowerCase())
@@ -81,7 +93,7 @@ function skipDetailsUp(lines, j) {
 
 function insideFigureDiv(lines, idx) {
   for (let i = idx; i >= 0; i--) {
-    if (/^:::\s*\{#fig-/.test(lines[i])) return true;
+    if (/^:::\s*\{#(?:fig|paper-fig)-/.test(lines[i])) return true;
     if (/^:::\s*$/.test(lines[i])) return false;
   }
   return false;
@@ -136,48 +148,48 @@ function collectPreviousImages(lines, captionIdx) {
 }
 
 function figureBlock(caption, images) {
-  const figId = `fig-${caption.number}`;
   const cols = images.length >= 4 ? 2 : images.length;
-  const out = [`::: {#${figId} layout-ncol=${cols}}`];
-  images.forEach((img, i) => {
-    const letter = caption.letters[i] || String.fromCharCode(97 + i);
-    out.push(`![(${letter})](${img.src}){#${figId}${letter}}`);
+  const out = [];
+  for (let i = 0; i < images.length; i += cols) {
+    const row = images.slice(i, i + cols);
+    out.push('| ' + row.map(img => `![](${img.src})`).join(' | ') + ' |');
+    out.push('| ' + row.map(() => '---').join(' | ') + ' |');
+    out.push('| ' + row.map((_, j) => {
+      const letter = caption.letters[i + j] || String.fromCharCode(97 + i + j);
+      return `*(${letter})*`;
+    }).join(' | ') + ' |');
     out.push('');
-  });
-  out.push(caption.line.trim());
-  out.push(':::');
+  }
+  out.push(`**${caption.line.trim()}**`);
   return out;
 }
 
-function normalizeFigureDivSpacing(lines) {
+function normalizeExistingFigureDivs(lines) {
   let changed = false;
-  let inFigure = false;
-  const out = [];
-
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/^:::\s*\{#fig-/.test(line)) inFigure = true;
+    if (!/^:::\s*\{#fig-/.test(lines[i])) continue;
 
-    out.push(line);
+    let end = i + 1;
+    while (end < lines.length && !/^:::\s*$/.test(lines[end])) end++;
+    if (end >= lines.length) continue;
 
-    if (inFigure && imageOf(line)) {
-      const next = lines[i + 1] || '';
-      if (next.trim() !== '') {
-        out.push('');
-        changed = true;
-      }
-    }
+    const block = lines.slice(i + 1, end);
+    const captionLine = block.find(line => isFigureCaptionLine(line));
+    const caption = captionLine ? isCaption(captionLine) : null;
+    if (!caption) continue;
 
-    if (inFigure && /^:::\s*$/.test(line)) inFigure = false;
+    const images = block.flatMap(imageOfAnywhere);
+    if (images.length < 2) continue;
+
+    caption.line = captionLine;
+    lines.splice(i, end - i + 1, ...figureBlock(caption, images.slice(0, caption.letters.length)));
+    changed = true;
   }
-
-  if (!changed) return false;
-  lines.splice(0, lines.length, ...out);
-  return true;
+  return changed;
 }
 
 function isFigureCaptionLine(line) {
-  return /^\s*Fig\.?\s*\d+\.\s+.+/i.test(line);
+  return /^\s*(?:Fig\.?|Figure)\s*\d+\.\s+.+/i.test(line);
 }
 
 function tableEnd(lines, start) {
@@ -213,7 +225,7 @@ function stripImageOcrTables(lines) {
 
 function processMarkdown(text) {
   const lines = text.split(/\r?\n/);
-  let changed = normalizeFigureDivSpacing(lines);
+  let changed = normalizeExistingFigureDivs(lines);
   if (stripImageOcrTables(lines)) changed = true;
 
   for (let i = 0; i < lines.length; i++) {
