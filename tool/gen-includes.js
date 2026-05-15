@@ -19,17 +19,31 @@ const ROOT_QMD = path.join(PROJECT_ROOT, 'qmd');
 const QUARTO_YML = path.join(PROJECT_ROOT, '_quarto.yml');
 const BEGIN = '<!-- AUTO-INCLUDES-BEGIN -->';
 const END   = '<!-- AUTO-INCLUDES-END -->';
+const NO_AUTO_INCLUDES = '<!-- QmdTool: no-auto-includes -->';
 
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
 function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
+function shouldSkipDir(name) {
+  return name.startsWith('.') ||
+    name.startsWith('_') ||
+    /\.bad-import(?:-|$)/.test(name) ||
+    /(?:^|[-_])backup(?:[-_]|$)/i.test(name);
+}
 
 function processQmd(qmdFile, chapterDir) {
   // qmdFile = .../<name>/<name>.qmd
   const dir = path.dirname(qmdFile);
+  let content = '';
+  try { content = fs.readFileSync(qmdFile, 'utf8'); } catch {}
+  if (content.includes(NO_AUTO_INCLUDES)) {
+    updateMarkers(qmdFile, []);
+    return;
+  }
   // siblings of qmdFile inside dir: each subfolder Y holds Y/Y.qmd
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const subFolders = entries
     .filter(e => e.isDirectory())
+    .filter(e => !shouldSkipDir(e.name))
     .map(e => e.name)
     .sort();
 
@@ -68,6 +82,7 @@ function updateMarkers(file, includes) {
 function findContentUnits(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    if (shouldSkipDir(entry.name)) continue;
     const childDir = path.join(dir, entry.name);
     const qmdFile = path.join(childDir, entry.name + '.qmd');
     if (isFile(qmdFile)) out.push(qmdFile);

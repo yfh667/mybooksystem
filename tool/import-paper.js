@@ -1,4 +1,4 @@
-// import-paper.js — convert a MinerU-style single .md (with sibling images/ folder)
+﻿// import-paper.js 鈥?convert a MinerU-style single .md (with sibling images/ folder)
 // into our Quarto book's folder-first chapter layout.
 //
 // Usage:
@@ -8,11 +8,11 @@
 //   node tool/import-paper.js "C:/Users/.../Performance_Analysis.md" isowc-paper
 //
 // Result:
-//   qmd/<chapter-slug>/<chapter-slug>.qmd           ← title + abstract
-//   qmd/<chapter-slug>/01-introduction/...          ← each H2 → folder
+//   qmd/<chapter-slug>/<chapter-slug>.qmd           鈫?title + abstract
+//   qmd/<chapter-slug>/01-introduction/...          鈫?each H2 鈫?folder
 //   qmd/<chapter-slug>/02-system-model/...
-//   qmd/<chapter-slug>/02-system-model/01-foo/...   ← each H3 → nested folder
-//   qmd/<chapter-slug>/images/                      ← all images copied here
+//   qmd/<chapter-slug>/02-system-model/01-foo/...   鈫?each H3 鈫?nested folder
+//   qmd/<chapter-slug>/images/                      鈫?all images copied here
 //
 // Image paths in the source .md (e.g. images/abc.jpg) keep working because Quarto
 // resolves include paths relative to the TOP-LEVEL chapter file, and images/ sits
@@ -20,6 +20,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { buildHeadingTree } = require('./heading-normalizer');
 
 const [, , srcPath, chapterSlug] = process.argv;
 if (!srcPath || !chapterSlug) {
@@ -101,21 +102,7 @@ function htmlTableToPipe(table) {
 // Parse markdown into a heading tree
 // -----------------------------------------------------------------------
 function parse(md) {
-  const lines = md.split(/\r?\n/);
-  const root = { level: 0, title: '(root)', body: [], children: [] };
-  const stack = [root];
-  for (const line of lines) {
-    const m = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (m) {
-      const node = { level: m[1].length, title: m[2].trim(), body: [], children: [] };
-      while (stack.length > 1 && stack[stack.length - 1].level >= node.level) stack.pop();
-      stack[stack.length - 1].children.push(node);
-      stack.push(node);
-    } else {
-      stack[stack.length - 1].body.push(line);
-    }
-  }
-  return root;
+  return buildHeadingTree(md);
 }
 
 // -----------------------------------------------------------------------
@@ -144,7 +131,7 @@ function writeNode(node, dir, fileSlug, depth) {
   fs.mkdirSync(dir, { recursive: true });
 
   const headingHash = '#'.repeat(Math.min(6, Math.max(1, depth + 1)));
-  // depth 0 → "#" (chapter), depth 1 → "##" (section), depth 2 → "###" (sub-section)
+  // depth 0 鈫?"#" (chapter), depth 1 鈫?"##" (section), depth 2 鈫?"###" (sub-section)
   // Use the source heading level directly if it's reasonable; else fall back to derived.
   const hash = node.level > 0 ? '#'.repeat(Math.min(6, node.level)) : headingHash;
 
@@ -156,7 +143,7 @@ function writeNode(node, dir, fileSlug, depth) {
 
   fs.writeFileSync(path.join(dir, fileSlug + '.qmd'), qmd);
 
-  // Children — each becomes its own folder
+  // Children 鈥?each becomes its own folder
   for (let i = 0; i < node.children.length; i++) {
     const child = node.children[i];
     const childSlug = slugify(child.title, i);
@@ -168,6 +155,14 @@ function writeNode(node, dir, fileSlug, depth) {
 // Main
 // -----------------------------------------------------------------------
 let content = fs.readFileSync(srcPath, 'utf8');
+// MinerU OCR can leak invisible control characters (e.g. U+0003/U+000C).
+// HTML mostly ignores them, but XeLaTeX fails with "invalid character".
+content = content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+// Pandoc only recognizes inline math when the opening $ is not followed by
+// whitespace and the closing $ is not preceded by whitespace.
+content = content
+  .replace(/\$\s+(?=[\\{A-Za-z0-9])/g, '$')
+  .replace(/([\\}\]\)A-Za-z0-9])\s+\$/g, '$1$');
 
 // MinerU emits math as \(...\) and \[...\]. Pandoc-to-LaTeX treats those as
 // literal brackets, not math, so PDF render fails. Convert to $...$ / $$...$$
@@ -175,10 +170,10 @@ let content = fs.readFileSync(srcPath, 'utf8');
 //
 // BUT: MinerU also wraps inline citations like "[9]" inside \( \), which are
 // not actually math. If the wrapped content is just a bracketed-number list,
-// strip the wrapper instead — the citation linker handles it later.
+// strip the wrapper instead 鈥?the citation linker handles it later.
 const looksLikeCitation = s => {
   const t = s.trim();
-  if (/^\[?\d+\]?(\s*[,;\-–]\s*\[?\d+\]?)*$/.test(t)) return true;
+  if (/^\[?\d+\]?(\s*[,;\-\u2013\u2014]\s*\[?\d+\]?)*$/.test(t)) return true;
   if (/^\[\d+\]\(#ref-\d+\)$/.test(t)) return true;
   return false;
 };
@@ -187,21 +182,21 @@ content = content.replace(/\\\(([\s\S]+?)\\\)/g, (full, m) =>
 content = content.replace(/\\\[([\s\S]+?)\\\]/g, (full, m) =>
   looksLikeCitation(m) ? full : `\n$$\n${m.trim()}\n$$\n`);
 
-// MinerU wraps tables and code blocks in <details><summary>label</summary>…</details>
+// MinerU wraps tables and code blocks in <details><summary>label</summary>鈥?/details>
 // which hides content by default in HTML and is unsupported in LaTeX/PDF.
 // Strip the wrapper and keep the inner content.
 content = content.replace(/<details>\s*<summary>[^<]*<\/summary>([\s\S]*?)<\/details>/g, '$1');
 content = content.replace(/<\/?details>/g, '');
 content = content.replace(/<summary>[^<]*<\/summary>/g, '');
 
-// MinerU also emits some tables as raw HTML <table><tr><td>…</td></tr></table>.
+// MinerU also emits some tables as raw HTML <table><tr><td>鈥?/td></tr></table>.
 // HTML output passes those through, but Pandoc-LaTeX drops them on the floor,
 // so PDF has missing tables. Convert to markdown pipe-tables (works in both).
 content = content.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
 
 // MinerU sometimes recreates a figure as a Mermaid diagram in addition to
 // inserting the actual image. The Mermaid version is usually broken nonsense
-// and we already have the real image — drop it.
+// and we already have the real image 鈥?drop it.
 content = content.replace(/```mermaid[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n');
 
 // Hyperlink IEEE-style [N] citations. Anchor each entry in the REFERENCES
@@ -210,19 +205,25 @@ content = processCitations(content);
 
 const root = parse(content);
 
-// We expect exactly one H1 = chapter
+let chapter;
 const h1s = root.children.filter(c => c.level === 1);
-if (h1s.length === 0) {
-  console.error('No H1 heading found in source .md');
+if (h1s.length > 0) {
+  chapter = h1s[0];
+  if (root.body.length) chapter.body = root.body.concat([''], chapter.body);
+  for (const extra of h1s.slice(1)) {
+    extra.level = 2;
+    chapter.children.push(extra);
+  }
+} else if (root.children.length > 0) {
+  chapter = {
+    level: 1,
+    title: path.basename(srcPath, '.md'),
+    body: root.body || [],
+    children: root.children,
+  };
+} else {
+  console.error('No markdown heading found in source .md');
   process.exit(1);
-}
-const chapter = h1s[0];
-// If there's content in root.body before the H1, prepend it to chapter body.
-if (root.body.length) chapter.body = root.body.concat([''], chapter.body);
-// Any extra H1s become extra H2 children of the chapter.
-for (const extra of h1s.slice(1)) {
-  extra.level = 2;
-  chapter.children.push(extra);
 }
 
 if (fs.existsSync(chapterRoot)) {
@@ -300,6 +301,17 @@ try {
   console.log(`  ! localize-images failed: ${e.message}`);
 }
 
+// Rebuild MinerU-split algorithm fragments into IEEE-like algorithm blocks.
+console.log(`  Formatting algorithms...`);
+try {
+  require('child_process').execSync(
+    `node "${path.join(__dirname, 'format-algorithms.js')}"`,
+    { cwd: PROJECT_ROOT, stdio: 'inherit' }
+  );
+} catch (e) {
+  console.log(`  ! format-algorithms failed: ${e.message}`);
+}
+
 // Populate AUTO-INCLUDES blocks right now (don't wait for the watcher's first save)
 console.log(`  Populating auto-includes...`);
 try {
@@ -314,9 +326,9 @@ try {
 console.log(`
 Done.`);
 if (addedToYml === true) {
-  console.log(`  ✓ Added to _quarto.yml book.chapters`);
+  console.log(`  鉁?Added to _quarto.yml book.chapters`);
 } else if (addedToYml === 'already-present') {
-  console.log(`  • Already listed in _quarto.yml`);
+  console.log(`  鈥?Already listed in _quarto.yml`);
 } else {
   console.log(`  ! Could not auto-edit _quarto.yml. Add this line manually under book.chapters:`);
   console.log(`      ${chapterLine.trim()}`);

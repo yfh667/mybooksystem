@@ -1,24 +1,25 @@
-// import-textbook.js — convert a MinerU-style .md of a Chinese textbook
+﻿// import-textbook.js 鈥?convert a MinerU-style .md of a Chinese textbook
 // into our Quarto book's folder-first chapter layout.
 //
 // Unlike import-paper.js, MinerU emits every heading in a textbook as H1.
 // The real hierarchy is encoded in the heading TEXT's numbering prefix:
-//   "第 N 章 标题"      → level 2 (a chapter inside the book)
-//   "N.M 标题"          → level 3 (a section)
-//   "N.M.K 标题"        → level 4 (a subsection)
-//   "N.M.K.L 标题"      → level 5 (a sub-subsection)
-//   "a. 标题"           → level 6 (deepest)
-//   "内容简介" / "前言" / "目录" / etc.  → level 2 (front-matter, sibling of chapters)
+//   "绗?N 绔?鏍囬"      鈫?level 2 (a chapter inside the book)
+//   "N.M 鏍囬"          鈫?level 3 (a section)
+//   "N.M.K 鏍囬"        鈫?level 4 (a subsection)
+//   "N.M.K.L 鏍囬"      鈫?level 5 (a sub-subsection)
+//   "a. 鏍囬"           鈫?level 6 (deepest)
+//   "鍐呭绠€浠? / "鍓嶈█" / "鐩綍" / etc.  鈫?level 2 (front-matter, sibling of chapters)
 //
 // Also, the source MD begins with a large TOC where every entry is an H1
-// like "# 1.2 遗传算法应用于组合优化问题的实例……17". Those page-numbered
-// entries are skipped — they're not content, just a table of contents.
+// like "# 1.2 閬椾紶绠楁硶搴旂敤浜庣粍鍚堜紭鍖栭棶棰樼殑瀹炰緥鈥︹€?7". Those page-numbered
+// entries are skipped 鈥?they're not content, just a table of contents.
 //
 // Usage:
 //   node tool/import-textbook.js <source.md> <chapter-slug>
 
 const fs   = require('fs');
 const path = require('path');
+const { classifyHeadingText } = require('./heading-normalizer');
 
 const [, , srcPath, chapterSlug] = process.argv;
 if (!srcPath || !chapterSlug) {
@@ -44,10 +45,18 @@ const chapterImages = path.join(chapterRoot, 'images');
 // Normalize MinerU-isms (same as import-paper.js)
 // ----------------------------------------------------------------------
 let content = fs.readFileSync(srcPath, 'utf8');
+// MinerU OCR can leak invisible control characters (e.g. U+0003/U+000C).
+// HTML mostly ignores them, but XeLaTeX fails with "invalid character".
+content = content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+// Pandoc only recognizes inline math when the opening $ is not followed by
+// whitespace and the closing $ is not preceded by whitespace.
+content = content
+  .replace(/\$\s+(?=[\\{A-Za-z0-9])/g, '$')
+  .replace(/([\\}\]\)A-Za-z0-9])\s+\$/g, '$1$');
 
 const looksLikeCitation = s => {
   const t = s.trim();
-  if (/^\[?\d+\]?(\s*[,;\-–]\s*\[?\d+\]?)*$/.test(t)) return true;
+  if (/^\[?\d+\]?(\s*[,;\-\u2013\u2014]\s*\[?\d+\]?)*$/.test(t)) return true;
   if (/^\[\d{1,3}\]\(#ref-\d{1,3}\)$/.test(t)) return true;
   return false;
 };
@@ -61,10 +70,10 @@ content = content.replace(/<table[\s\S]*?<\/table>/gi, htmlTableToPipe);
 content = content.replace(/```mermaid[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n');
 content = content.replace(/\n\$\$\s*\\begin\{array\}c(?:\s+c){20,}\s*\$\$\n/g, '\n\n');
 
-// (Citations in textbooks are usually less structured than papers; keep [N]→link
+// (Citations in textbooks are usually less structured than papers; keep [N]鈫抣ink
 // handling but tolerate the references section being missing.)
 content = (function processCitations(s) {
-  const m = s.match(/\n(#{1,6})\s+(?:references|参考文献)\b[^\n]*\n/i);
+  const m = s.match(/\n(#{1,6})\s+(?:references|bibliography|\u53c2\u8003\u6587\u732e)\b[^\n]*\n/i);
   if (!m) return s.replace(/\[(\d{1,3})\](?!\(#ref-|\{#ref-)/g, (_, n) => `\\[[${n}](#ref-${n})\\]`);
   const cut = m.index + m[0].length;
   const before  = s.slice(0, cut);
@@ -75,89 +84,24 @@ content = (function processCitations(s) {
 content = content.replace(/\s*\$\^\{([^$]*#ref-[^$]*)\}\$/g, (_, refs) => ` ${refs}`);
 
 // ----------------------------------------------------------------------
-// Parse heading text → classification
+// Parse heading text by number, not by the number of # characters.
 // ----------------------------------------------------------------------
 function classifyHeading(text) {
-  const t = text.trim();
-
-  // TOC entry: trailing "…N", ".....N" or "title  N" where N is page number.
-  // Matchers, in order of specificity:
-  //   "…… 209"  or "……209"
-  //   "...... 51"  or "....51"
-  //   bare trailing digits after numbered prefix: "5.3 标题 209"
-  if (/(?:\.{2,}|…{1,})\s*\d+\s*$/.test(t)) return { kind: 'toc' };
-  if (/^(?:第\s*\d+\s*章|附录\s*[A-Za-z]?|\d+(?:\.\d+){0,3})\b[\s\S]*\s\d+\s*$/.test(t)) {
-    return { kind: 'toc' };
-  }
-  if (/^(?:前言|译者的话|序|后记|致谢)\s+[IVXLCDM]+\s*$/i.test(t)) {
-    return { kind: 'toc' };
-  }
-
-  // 第 N 章 标题
-  const chap = t.match(/^第\s*(\d+)\s*章\s*(.*)$/);
-  if (chap) {
-    return { kind: 'section', depth: 1, num: chap[1], title: chap[2].trim() };
-  }
-  // 附录 A 标题
-  const appx = t.match(/^附录\s*([A-Za-z]?)\s*(.*)$/);
-  if (appx) {
-    return { kind: 'section', depth: 1, num: appx[1] || '', title: appx[2].trim() };
-  }
-  // N.M [.K [.L]] 标题
-  const num = t.match(/^(\d+(?:\.\d+){1,3})\s*(.*)$/);
-  if (num) {
-    const depth = num[1].split('.').length;
-    return { kind: 'section', depth, num: num[1], title: num[2].trim() };
-  }
-  // IEEE-paper style: roman numeral chapter (I. II. III. ... up to XX)
-  // and single uppercase letter subsection (A. B. C. ...).
-  // MinerU flattens these to H1; the hierarchy is in the text prefix.
-  const ROMAN = new Set([
-    'I','II','III','IV','V','VI','VII','VIII','IX','X',
-    'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
-  ]);
-  const upper = t.match(/^([A-Z]+)\.\s+(.+)$/);
-  if (upper) {
-    if (ROMAN.has(upper[1])) {
-      return { kind: 'section', depth: 1, num: upper[1], title: upper[2].trim() };
-    }
-    if (upper[1].length === 1) {
-      return { kind: 'section', depth: 2, num: upper[1], title: upper[2].trim() };
-    }
-    // Multi-char non-roman uppercase (e.g. "MIMO"): fall through.
-  }
-  // English IEEE-paper top-level sections without numbering.
-  if (/^(?:references|abstract|conclusion|acknowledg(?:e?)ments?|index|appendix|bibliography)\s*$/i.test(t)) {
-    return { kind: 'section', depth: 1, num: '', title: t };
-  }
-  // Lowercase letter prefix (sub-sub-item): "a. 标题"  or "(a) 标题"
-  if (/^\(?[a-z]\)?\.?\s+\S/.test(t)) {
-    return { kind: 'section', depth: 5, num: null, title: t };
-  }
-
-  // Front matter that should live on the book landing page, not as full chapters.
-  if (/^(?:内容简介|图书在版编目|目录)/.test(t)) {
-    return { kind: 'front-matter', title: t };
-  }
-  // Front matter that readers expect as a real book chapter.
-  if (/^(?:前言|译者的话|序|后记|致谢)/.test(t)) {
-    return { kind: 'preface', title: t };
-  }
-  // Bare (book title repeats, chapter sub-titles in 2-line form, etc.)
-  return { kind: 'bare', text: t };
+  return classifyHeadingText(text);
 }
 
 // ----------------------------------------------------------------------
-// Parse the whole MD: collect H1 segments and build a tree
+// Parse the whole MD: collect heading segments and build a tree
 // ----------------------------------------------------------------------
 function parseTextbook(md) {
   const lines = md.split(/\r?\n/);
 
-  // Collect H1 segments only (textbook MinerU emits everything as H1)
+  // Collect every markdown heading. MinerU's # count is only a heading marker;
+  // the real hierarchy is recovered from the numbering in the heading text.
   const segs = [];
   let cur = null;
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^#\s+(.+?)\s*$/);
+    const m = lines[i].match(/^\uFEFF?#{1,6}\s+(.+?)\s*$/);
     if (m) {
       if (cur) segs.push(cur);
       cur = { idx: i, title: m[1].trim(), body: [] };
@@ -169,13 +113,13 @@ function parseTextbook(md) {
 
   for (const s of segs) s.cls = classifyHeading(s.title);
 
-  // Filter: drop TOC entries. Also drop the literal "目录" front-matter (it's a TOC marker, not content).
+  // Filter: drop TOC entries. Also drop the literal "鐩綍" front-matter (it's a TOC marker, not content).
   // Dedupe bare repeats (book title typically appears twice on title/spine page).
   const seenBare = new Set();
   const filtered = [];
   for (const s of segs) {
     if (s.cls.kind === 'toc') continue;
-    if (s.cls.kind === 'front-matter' && s.cls.title === '目录') continue;
+    if (s.cls.kind === 'front-matter' && s.cls.title === '鐩綍') continue;
     if (s.cls.kind === 'bare') {
       if (seenBare.has(s.title)) continue;
       seenBare.add(s.title);
@@ -184,7 +128,7 @@ function parseTextbook(md) {
   }
 
   // Merge a chapter-without-title + following bare heading.
-  // MinerU often splits "第1章\n遗传算法" into two H1s; rejoin them.
+  // MinerU often splits "绗?绔燶n閬椾紶绠楁硶" into two H1s; rejoin them.
   for (let i = 0; i < filtered.length - 1; i++) {
     const a = filtered[i], b = filtered[i + 1];
     if (a.cls.kind === 'section' && a.cls.depth === 1 && !a.cls.title && b.cls.kind === 'bare') {
@@ -197,9 +141,9 @@ function parseTextbook(md) {
   }
 
   // Build tree. Map depths:
-  //   bare = book title prelude → level 1 (the root chapter file paper.qmd)
-  //   front-matter             → level 2
-  //   section depth N          → level (N+1)
+  //   bare = book title prelude 鈫?level 1 (the root chapter file paper.qmd)
+  //   front-matter             鈫?level 2
+  //   section depth N          鈫?level (N+1)
   //   capped at 6
   const root = { level: 0, title: '', body: [], children: [] };
   const stack = [root];
@@ -326,11 +270,29 @@ function collectBookChapters(bookNode) {
 
   for (const child of bookNode.children || []) visit(child);
 
-  return { frontMatterNodes, chapterNodes };
+  return { frontMatterNodes, chapterNodes: mergeRepeatedBackMatter(chapterNodes) };
 }
 
 function collectBookChaptersFrom(nodes) {
   return collectBookChapters({ children: nodes });
+}
+
+function mergeRepeatedBackMatter(chapterNodes) {
+  const out = [];
+  const seen = new Map();
+  for (const node of chapterNodes) {
+    const key = (node.title || '').trim().toLowerCase();
+    const shouldMerge = /^(?:preface|foreword|references|bibliography|index)$/.test(key);
+    if (shouldMerge && seen.has(key)) {
+      const target = seen.get(key);
+      target.body = target.body.concat([''], node.body || []);
+      target.children = target.children.concat(node.children || []);
+      continue;
+    }
+    out.push(node);
+    if (shouldMerge) seen.set(key, node);
+  }
+  return out;
 }
 
 function writeBookChapters(chapterNodes) {
@@ -425,7 +387,7 @@ const root = parseTextbook(content);
 // Treat the first bare heading as the book title; fallback if missing.
 let bookNode = root.children.find(c => c.level === 1 && c.cls && c.cls.kind === 'bare');
 if (!bookNode) {
-  // No book title detected — synthesize one from the first heading
+  // No book title detected 鈥?synthesize one from the first heading
   bookNode = {
     level: 1,
     title: path.basename(srcPath, '.md'),
@@ -481,6 +443,13 @@ try {
   require('child_process').execSync(`node "${path.join(__dirname, 'localize-images.js')}"`,
     { cwd: PROJECT_ROOT, stdio: 'inherit' });
 } catch (e) { console.log(`  ! localize-images failed: ${e.message}`); }
+
+// Rebuild MinerU-split algorithm fragments into IEEE-like algorithm blocks.
+console.log('  Formatting algorithms...');
+try {
+  require('child_process').execSync(`node "${path.join(__dirname, 'format-algorithms.js')}"`,
+    { cwd: PROJECT_ROOT, stdio: 'inherit' });
+} catch (e) { console.log(`  ! format-algorithms failed: ${e.message}`); }
 
 // Run gen-includes to populate AUTO-INCLUDES blocks
 console.log('  Populating auto-includes...');

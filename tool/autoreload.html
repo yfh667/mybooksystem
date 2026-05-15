@@ -41,7 +41,15 @@
       const css = document.createElement('style');
       css.id = '__kb_status_css__';
       css.textContent =
-        '@keyframes __kb_pulse__ { 0%,100%{transform:scale(1);opacity:1;} 50%{transform:scale(1.6);opacity:.5;} }';
+        '@keyframes __kb_pulse__ { 0%,100%{transform:scale(1);opacity:1;} 50%{transform:scale(1.6);opacity:.5;} }' +
+        '.ieee-algorithm{border-top:1.5px solid #111;border-bottom:1.5px solid #111;margin:1.2rem 0;padding:.35rem 0 .45rem 0;font-size:.95rem;}' +
+        '.ieee-algorithm hr{display:none;}' +
+        '.ieee-algorithm p{margin:.25rem 0;}' +
+        '.ieee-algorithm ul{margin:.15rem 0 .35rem 1.1rem;padding-left:.4rem;}' +
+        '.ieee-algorithm table{width:100%;margin:.25rem 0;border-collapse:collapse;border:0;}' +
+        '.ieee-algorithm th,.ieee-algorithm td{border:0!important;padding:.08rem .35rem;vertical-align:top;}' +
+        '.ieee-algorithm td:first-child{width:2.8rem;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;}' +
+        '.ieee-algorithm thead{display:none;}';
       document.head.appendChild(css);
     }
     document.body.appendChild(badge);

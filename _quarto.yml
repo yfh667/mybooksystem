@@ -30,6 +30,8 @@ format:
     pdf-engine: xelatex
     mainfont: "Times New Roman"
     documentclass: scrreprt
+    classoption:
+      - enabledeprecatedfontcommands
     toc: true
     number-sections: true
     include-in-header:

@@ -79,10 +79,16 @@ Remove-Item (Join-Path $root "index.html"), `
 Remove-Item (Join-Path $root ".quarto\project-cache") -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Initial render..." -ForegroundColor Cyan
 Write-Host "Scanning content tree..." -ForegroundColor DarkGray
+Update-Status "scanning" "format-algorithms"
+& node "$toolDir\format-algorithms.js" 2>&1 | Out-Null
 Update-Status "scanning" "gen-includes"
 & node "$toolDir\gen-includes.js" 2>&1 | Out-Null
 Update-Status "rendering-html" "initial render"
 & $quartoExe render --to html 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Update-Status "rendering-pdf" "initial render"
+    & $quartoExe render --to pdf --output-dir _pdf 2>$null | Out-Null
+}
 $script:BuildId++
 Update-Status "idle"
 Write-Host "Initial render done." -ForegroundColor Green
@@ -181,6 +187,10 @@ try {
         Wait-FileQuiet -Path $changedPath
 
         # --- Step 0: regenerate auto-includes from folder structure ---
+        Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] format-algorithms..." -ForegroundColor DarkGray
+        Update-Status "scanning" "format-algorithms"
+        & node "$toolDir\format-algorithms.js" 2>&1 | Out-Null
+
         Write-Host "[$((Get-Date).ToString('HH:mm:ss'))] gen-includes..." -ForegroundColor DarkGray
         Update-Status "scanning" "gen-includes"
         & node "$toolDir\gen-includes.js" 2>&1 | Out-Null
