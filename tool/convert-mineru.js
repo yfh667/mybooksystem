@@ -23,7 +23,10 @@ const fs   = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
-const target = path.resolve(process.argv[2] || '.');
+const args = process.argv.slice(2);
+const cleanFlag = args.includes('--clean');
+const positional = args.filter(a => !a.startsWith('--'));
+const target = path.resolve(positional[0] || '.');
 if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
   console.error(`Folder not found: ${target}`);
   process.exit(1);
@@ -93,7 +96,21 @@ if (result.status !== 0) {
   process.exit(result.status);
 }
 
-// 5. Next steps
+// 5. Optional cleanup (--clean flag)
+if (cleanFlag) {
+  console.log('\n--- Running cleanup-after-import ---');
+  const cleanupScript = path.join(TOOL_DIR, 'cleanup-after-import.js');
+  spawnSync('node', [cleanupScript, target], {
+    stdio: 'inherit',
+    env: { ...process.env, PROJECT_ROOT: target },
+  });
+} else {
+  console.log(`\nTip: pass --clean to also archive MinerU sources into _source/`);
+  console.log(`     and delete intermediates (~10 MB savings per paper):`);
+  console.log(`       "${path.join(TOOL_DIR, 'cleanup-after-import.cmd')}" "${target}"`);
+}
+
+// 6. Next steps
 const startCmd = path.join(TOOL_DIR, 'start.cmd');
 console.log(`
 ========================================================================
