@@ -24,8 +24,11 @@ if not exist "%ROOT%\_quarto.yml" (
 cd /d "%ROOT%"
 set PROJECT_ROOT=%ROOT%
 
+echo Releasing port 4321 and old qmdtool watchers...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOL%kill-port.ps1" -ProjectRoot "%ROOT%" -Port 4321
+
 echo Starting watcher for project: %ROOT%
-start "qmdtool watcher" /min cmd /d /c "cd /d "%ROOT%" && set "PROJECT_ROOT=%ROOT%" && powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOL%watch-render.ps1" > "%ROOT%\watcher.log" 2> "%ROOT%\watcher.err.log""
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TOOL%start-watcher.ps1" -ProjectRoot "%ROOT%" -ToolDir "%TOOL%"
 
 echo.
 echo Watcher started in background.

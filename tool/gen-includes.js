@@ -1,6 +1,12 @@
-// Folder-first convention:
-//   Every content unit X is stored as <some-path>/X/X.qmd
-//   Its subsections are sibling folders inside <some-path>/X/  (each a <name>/<name>.qmd unit)
+// Chapter/content convention:
+//   Top level: qmd/ai/ai.qmd is the only qmd allowed directly in qmd/ai/.
+//   From the second level down, folders are containers and may hold many qmds:
+//     qmd/ai/demo/simple.qmd
+//     qmd/ai/demo/test.qmd
+//   A qmd file X.qmd owns the sibling folder X/:
+//     qmd/ai/demo/test.qmd includes entry qmds under qmd/ai/demo/test/.
+//   Legacy folder-first units are also supported:
+//     qmd/paper/01-chapter/01-chapter.qmd owns qmd/paper/01-chapter/.
 //   Quarto's `{{< include >}}` resolves nested paths relative to the TOP-LEVEL chapter
 //   file's directory, so we always emit paths relative to chapterDir.
 
@@ -30,32 +36,116 @@ function shouldSkipDir(name) {
     /(?:^|[-_])backup(?:[-_]|$)/i.test(name);
 }
 
+function targetHeadingLevel(qmdFile, chapterDir) {
+  const rel = path.relative(chapterDir, qmdFile);
+  const parts = rel.split(path.sep).filter(Boolean);
+  return Math.max(1, parts.length);
+}
+
+function normalizeHeadingFloor(qmdFile, minTargetLevel) {
+  if (minTargetLevel <= 1) return;
+
+  let content = '';
+  try { content = fs.readFileSync(qmdFile, 'utf8'); } catch { return; }
+
+  const lines = content.split(/\r?\n/);
+  const headingRe = /^(\uFEFF?)(#{1,6})(\s+.*)$/;
+  const fenceRe = /^\s{0,3}(```+|~~~+)/;
+  let inFence = false;
+  let minLevel = 7;
+
+  for (const line of lines) {
+    if (fenceRe.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = line.match(headingRe);
+    if (match) minLevel = Math.min(minLevel, match[2].length);
+  }
+
+  if (minLevel === 7 || minLevel >= minTargetLevel) return;
+
+  const shift = minTargetLevel - minLevel;
+  inFence = false;
+  const next = lines.map(line => {
+    if (fenceRe.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence) return line;
+    const match = line.match(headingRe);
+    if (!match) return line;
+    const level = Math.min(6, match[2].length + shift);
+    return match[1] + '#'.repeat(level) + match[3];
+  }).join('\n');
+
+  if (next !== content) fs.writeFileSync(qmdFile, next, 'utf8');
+}
+
+function hasTopLevelHeading(content) {
+  const fenceRe = /^\s{0,3}(```+|~~~+)/;
+  let inFence = false;
+  for (const line of content.split(/\r?\n/)) {
+    if (fenceRe.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && /^\uFEFF?#\s+/.test(line)) return true;
+  }
+  return false;
+}
+
+function insertAfterYaml(content, heading) {
+  const lines = content.split(/\r?\n/);
+  if (lines[0] === '---') {
+    const end = lines.findIndex((line, index) => index > 0 && line === '---');
+    if (end > 0) {
+      lines.splice(end + 1, 0, '', heading, '');
+      return lines.join('\n');
+    }
+  }
+  return heading + '\n\n' + content;
+}
+
+function ensureChapterHeading(qmdFile, chapterDir) {
+  if (path.resolve(path.dirname(qmdFile)) !== path.resolve(chapterDir)) return;
+
+  let content = '';
+  try { content = fs.readFileSync(qmdFile, 'utf8'); } catch { return; }
+  if (hasTopLevelHeading(content)) return;
+
+  const title = path.basename(chapterDir);
+  fs.writeFileSync(qmdFile, insertAfterYaml(content, '# ' + title), 'utf8');
+}
+
 function processQmd(qmdFile, chapterDir) {
-  // qmdFile = .../<name>/<name>.qmd
   const dir = path.dirname(qmdFile);
+  ensureChapterHeading(qmdFile, chapterDir);
+  normalizeHeadingFloor(qmdFile, targetHeadingLevel(qmdFile, chapterDir));
   let content = '';
   try { content = fs.readFileSync(qmdFile, 'utf8'); } catch {}
   if (content.includes(NO_AUTO_INCLUDES)) {
     updateMarkers(qmdFile, []);
     return;
   }
-  // siblings of qmdFile inside dir: each subfolder Y holds Y/Y.qmd
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const subFolders = entries
-    .filter(e => e.isDirectory())
-    .filter(e => !shouldSkipDir(e.name))
-    .map(e => e.name)
-    .sort();
 
-  let includes = [];
-  for (const sub of subFolders) {
-    const candidate = path.join(dir, sub, sub + '.qmd');
-    if (isFile(candidate)) {
-      const rel = path.relative(chapterDir, candidate).split(path.sep).join('/');
-      includes.push(rel);
-      processQmd(candidate, chapterDir);
-    }
-  }
+  const isChapter = path.resolve(dir) === path.resolve(chapterDir);
+  const isFolderNamedUnit = path.basename(dir) === path.basename(qmdFile, path.extname(qmdFile));
+  const childRoot = isChapter
+    ? chapterDir
+    : isFolderNamedUnit
+      ? dir
+    : path.join(dir, path.basename(qmdFile, path.extname(qmdFile)));
+
+  const childQmds = isDir(childRoot)
+    ? collectEntryQmds(childRoot, qmdFile, { allowRootQmds: !isChapter })
+    : [];
+
+  const includes = childQmds.map(candidate => {
+    processQmd(candidate, chapterDir);
+    return path.relative(chapterDir, candidate).split(path.sep).join('/');
+  });
   updateMarkers(qmdFile, includes);
 }
 
@@ -79,26 +169,70 @@ function updateMarkers(file, includes) {
   }
 }
 
-function findContentUnits(dir, out = []) {
+function listQmdFiles(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (shouldSkipDir(entry.name)) continue;
-    const childDir = path.join(dir, entry.name);
-    const qmdFile = path.join(childDir, entry.name + '.qmd');
-    if (isFile(qmdFile)) out.push(qmdFile);
-    findContentUnits(childDir, out);
+    if (entry.isDirectory()) {
+      if (!shouldSkipDir(entry.name)) listQmdFiles(path.join(dir, entry.name), out);
+      continue;
+    }
+    if (entry.isFile() && entry.name.toLowerCase().endsWith('.qmd')) {
+      out.push(path.join(dir, entry.name));
+    }
   }
   return out;
 }
 
-function hasContentUnitAncestor(qmdFile) {
-  let dir = path.dirname(path.dirname(qmdFile));
-  while (dir.startsWith(ROOT_QMD) && dir !== ROOT_QMD) {
-    const parentName = path.basename(dir);
-    if (isFile(path.join(dir, parentName + '.qmd'))) return true;
+function hasOwningQmdAncestor(qmdFile, scanRoot, ignoredOwner) {
+  const scanRootResolved = path.resolve(scanRoot);
+  const ignoredResolved = ignoredOwner ? path.resolve(ignoredOwner) : null;
+  let dir = path.dirname(qmdFile);
+
+  while (dir.startsWith(scanRootResolved)) {
+    // New style: sibling owner, e.g. demo/test.qmd owns demo/test/.
+    const siblingOwner = path.join(path.dirname(dir), path.basename(dir) + '.qmd');
+    const siblingOwnerResolved = path.resolve(siblingOwner);
+    if (isFile(siblingOwner) && siblingOwnerResolved !== ignoredResolved) return true;
+
+    // Legacy style: folder-named owner, e.g. 01-chapter/01-chapter.qmd owns
+    // everything below 01-chapter/.
+    const folderNamedOwner = path.join(dir, path.basename(dir) + '.qmd');
+    const folderNamedOwnerResolved = path.resolve(folderNamedOwner);
+    if (
+      isFile(folderNamedOwner) &&
+      folderNamedOwnerResolved !== ignoredResolved &&
+      path.resolve(qmdFile) !== folderNamedOwnerResolved
+    ) {
+      return true;
+    }
+
+    if (path.resolve(dir) === scanRootResolved) break;
     dir = path.dirname(dir);
   }
   return false;
+}
+
+function collectEntryQmds(scanRoot, ignoredOwner, options = {}) {
+  const allowRootQmds = Boolean(options.allowRootQmds);
+  const scanRootResolved = path.resolve(scanRoot);
+  const ignoredResolved = ignoredOwner ? path.resolve(ignoredOwner) : null;
+
+  return listQmdFiles(scanRoot)
+    .filter(file => path.resolve(file) !== ignoredResolved)
+    .filter(file => allowRootQmds || path.resolve(path.dirname(file)) !== scanRootResolved)
+    .filter(file => !hasOwningQmdAncestor(file, scanRoot, ignoredOwner))
+    .sort();
+}
+
+function findChapters() {
+  const chapters = [];
+  for (const entry of fs.readdirSync(ROOT_QMD, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (shouldSkipDir(entry.name)) continue;
+    const chapterDir = path.join(ROOT_QMD, entry.name);
+    const chapterFile = path.join(chapterDir, entry.name + '.qmd');
+    if (isFile(chapterFile)) chapters.push(chapterFile);
+  }
+  return chapters.sort();
 }
 
 function relProject(file) {
@@ -157,9 +291,7 @@ function updateQuartoChapters(chapters) {
 
 if (!isDir(ROOT_QMD)) { console.log('No qmd/ folder, skipping.'); process.exit(0); }
 
-const chapters = findContentUnits(ROOT_QMD)
-  .filter(qmdFile => !hasContentUnitAncestor(qmdFile))
-  .sort();
+const chapters = findChapters();
 
 const ymlStatus = updateQuartoChapters(chapters);
 

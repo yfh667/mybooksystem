@@ -18,13 +18,13 @@ from pathlib import Path
 # =========================
 
 # Original PDF folder. It will not be modified.
-SOURCE_PDF_DIR = Path(r"C:\Users\Administrator\Desktop\c4")
+SOURCE_PDF_DIR = Path(r"C:\Users\Administrator\Desktop\mainpaper")
 
 # Renamed PDF working folder. PDFs are copied here as pdf001.pdf, pdf002.pdf, ...
-RENAMED_PDF_DIR = Path(r"C:\Users\Administrator\Desktop\c4\renamed_pdfs")
+RENAMED_PDF_DIR = Path(r"C:\Users\Administrator\Desktop\mainpaper\renamed_pdfs")
 
 # MinerU output root. Output folders are pdf001, pdf002, ...
-MINERU_OUTPUT_DIR = Path(r"C:\Users\Administrator\Desktop\c4\output")
+MINERU_OUTPUT_DIR = Path(r"C:\Users\Administrator\Desktop\mainpaper\output")
 
 # CSV files for traceability.
 MANIFEST_PATH = Path(r"C:\Users\Administrator\Desktop\c4\manifest.csv")

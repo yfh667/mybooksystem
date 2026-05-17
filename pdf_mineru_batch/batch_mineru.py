@@ -97,15 +97,16 @@ def build_command(mineru_bin: str, pdf_path: Path, output_dir: Path, api_url: st
     if mineru_bin == "auto":
         mineru_bin = resolve_mineru_bin()
     command_prefix = shlex.split(mineru_bin, posix=os.name != "nt")
-    return [
+    command = [
         *command_prefix,
         "-p",
         str(pdf_path),
         "-o",
         str(output_dir),
-        "--api-url",
-        api_url,
     ]
+    if api_url:
+        command.extend(["--api-url", api_url])
+    return command
 
 
 def command_to_text(command: list[str]) -> str:

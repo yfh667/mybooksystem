@@ -5,6 +5,10 @@ project:
 editor:
   render-on-save: false
 
+execute:
+  eval: false
+  echo: true
+
 book:
   title: "My Book"
   author: "Your Name"

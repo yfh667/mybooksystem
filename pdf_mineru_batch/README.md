@@ -54,6 +54,8 @@ C:\Users\Administrator\Desktop\mineru_pdf_data\mineru_batch_report.csv
 
 Purpose: one-click workflow. It first copies and renames PDFs to `pdf001.pdf`, `pdf002.pdf`, ..., then runs MinerU and writes outputs to `pdf001`, `pdf002`, ...
 
+This version uses the remote MinerU API configured in the file.
+
 Open this file in VSCode and click Run:
 
 ```powershell
@@ -74,6 +76,40 @@ Direct Python command example:
 ```powershell
 cd C:\Users\Administrator\Desktop\qmdtool\mybooksystem\pdf_mineru_batch
 C:\ProgramData\miniconda3\envs\mineru\python.exe .\run_pipeline_direct.py
+```
+
+## run_pipeline_local_direct.py
+
+Purpose: one-click local workflow. It directly reads PDFs from the input folder and runs local MinerU without `--api-url`.
+
+It does not sort PDFs. It uses the filesystem traversal order. It does not copy or rename PDFs.
+
+Open this file in VSCode and click Run:
+
+```powershell
+C:\Users\Administrator\Desktop\qmdtool\mybooksystem\pdf_mineru_batch\run_pipeline_local_direct.py
+```
+
+Default example:
+
+```python
+INPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\renamed_pdfs")
+OUTPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\output")
+```
+
+Generated files under `OUTPUT_FOLDER`:
+
+```text
+pdf0035
+pdf0036
+mineru_batch_report.csv
+```
+
+Direct Python command example:
+
+```powershell
+cd C:\Users\Administrator\Desktop\qmdtool\mybooksystem\pdf_mineru_batch
+C:\ProgramData\miniconda3\envs\mineru\python.exe .\run_pipeline_local_direct.py
 ```
 
 ## collect_pdfs.py

@@ -85,10 +85,6 @@ Update-Status "scanning" "gen-includes"
 & node "$toolDir\gen-includes.js" 2>&1 | Out-Null
 Update-Status "rendering-html" "initial render"
 & $quartoExe render --to html 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Update-Status "rendering-pdf" "initial render"
-    & $quartoExe render --to pdf --output-dir _pdf 2>$null | Out-Null
-}
 $script:BuildId++
 Update-Status "idle"
 Write-Host "Initial render done." -ForegroundColor Green

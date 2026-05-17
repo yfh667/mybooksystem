@@ -60,7 +60,7 @@ echo.
 echo   2. Import a MinerU markdown ^(optional^):
 echo        cd "%TARGET%"
 echo        node "%TOOL%import-paper.js"    ^<some.md^> paper
-echo        node "%TOOL%import-textbook.js" ^<some.md^> paper
+echo        node "%TOOL%import-textbook.js" ^<some.md^> __root__
 echo.
 echo   3. Start the watcher:
 echo        "%TOOL%start.cmd" "%TARGET%"

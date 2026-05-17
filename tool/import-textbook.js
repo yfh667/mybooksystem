@@ -38,7 +38,10 @@ const PROJECT_ROOT  = process.env.PROJECT_ROOT
       : path.join(__dirname, '..'));
 const srcDir        = path.dirname(srcPath);
 const srcImagesDir  = path.join(srcDir, 'images');
-const chapterRoot   = path.join(PROJECT_ROOT, 'qmd', chapterSlug);
+const directQmdRoot  = chapterSlug === '__root__' || chapterSlug === '.' || chapterSlug === 'root';
+const chapterRoot   = directQmdRoot
+  ? path.join(PROJECT_ROOT, 'qmd')
+  : path.join(PROJECT_ROOT, 'qmd', chapterSlug);
 const chapterImages = path.join(chapterRoot, 'images');
 
 // ----------------------------------------------------------------------
@@ -303,7 +306,9 @@ function writeBookChapters(chapterNodes) {
     const slug = slugify(chapter.title, i);
     const shifted = cloneWithLevelShift(chapter, 1 - chapter.level);
     writeNode(adjustChapterImagePaths(shifted), path.join(chapterRoot, slug), slug, 0);
-    chapterFiles.push(`qmd/${chapterSlug}/${slug}/${slug}.qmd`);
+    chapterFiles.push(directQmdRoot
+      ? `qmd/${slug}/${slug}.qmd`
+      : `qmd/${chapterSlug}/${slug}/${slug}.qmd`);
   }
   return chapterFiles;
 }
@@ -336,7 +341,8 @@ function updateQuartoChapters(chapterFiles) {
     .map(line => line.match(/^\s{4}-\s+(.+?)\s*$/))
     .filter(Boolean)
     .map(match => match[1])
-    .filter(item => item !== 'index.qmd' && !item.startsWith(`qmd/${chapterSlug}/`));
+    .filter(item => item !== 'index.qmd')
+    .filter(item => directQmdRoot ? !item.startsWith('qmd/') : !item.startsWith(`qmd/${chapterSlug}/`));
 
   const replacement = [
     '    - index.qmd',
@@ -399,16 +405,28 @@ if (!bookNode) {
 const sourceNodes = root.children.filter(c => c !== bookNode);
 const { frontMatterNodes, chapterNodes } = collectBookChaptersFrom([...bookNode.children, ...sourceNodes]);
 
-if (fs.existsSync(chapterRoot)) {
-  console.error(`Target already exists: ${chapterRoot}`);
-  console.error('Refuse to overwrite. Move/rename it first.');
-  process.exit(1);
+if (directQmdRoot) {
+  fs.mkdirSync(chapterRoot, { recursive: true });
+  const existingQmdEntries = fs.readdirSync(chapterRoot, { withFileTypes: true })
+    .filter(entry => entry.name !== 'images')
+    .filter(entry => entry.isDirectory() || entry.name.toLowerCase().endsWith('.qmd'));
+  if (existingQmdEntries.length > 0) {
+    console.error(`Target qmd/ is not empty: ${chapterRoot}`);
+    console.error('Refuse to overwrite. Move/rename existing qmd content first.');
+    process.exit(1);
+  }
+} else {
+  if (fs.existsSync(chapterRoot)) {
+    console.error(`Target already exists: ${chapterRoot}`);
+    console.error('Refuse to overwrite. Move/rename it first.');
+    process.exit(1);
+  }
 }
 
 console.log(`Importing textbook: "${bookNode.title}"`);
 console.log(`  Index front-matter sections: ${frontMatterNodes.length}`);
 console.log(`  Book chapters: ${chapterNodes.length}`);
-console.log(`  Target: qmd/${chapterSlug}/`);
+console.log(`  Target: ${directQmdRoot ? 'qmd/' : `qmd/${chapterSlug}/`}`);
 
 writeIndex(bookNode, frontMatterNodes);
 const chapterFiles = writeBookChapters(chapterNodes);

@@ -56,8 +56,7 @@ const TOOL_DIR = __dirname;
 if (!fs.existsSync(path.join(target, '_quarto.yml'))) {
   console.log('Bootstrapping project (copying templates from mukuai)...');
   const newProj = path.join(TOOL_DIR, 'new-project.cmd');
-  // shell: true is required so cmd.exe handles the .cmd extension on Windows
-  const r = spawnSync(newProj, [target], { stdio: 'inherit', shell: true });
+  const r = spawnCmd(newProj, [target], { stdio: 'inherit' });
   if (r.status !== 0 || !fs.existsSync(path.join(target, '_quarto.yml'))) {
     console.error('Bootstrap failed. Re-run manually:');
     console.error(`  "${newProj}" "${target}"`);
@@ -75,16 +74,29 @@ const h2 = lines.filter(l => /^##\s/.test(l)).length;
 const h3 = lines.filter(l => /^###\s/.test(l)).length;
 console.log(`Headings detected:  H1=${h1}  H2=${h2}  H3=${h3}`);
 
-const importer = (h2 > 0 || h3 > 0)
-  ? 'import-paper.js'
-  : 'import-textbook.js';
+const headings = lines
+  .map(line => line.match(/^(#{1,6})\s+(.+?)\s*$/))
+  .filter(Boolean)
+  .map(match => ({ level: match[1].length, text: match[2] }));
+const h2Headings = headings.filter(h => h.level === 2).map(h => h.text);
+const numberedH2 = h2Headings.filter(text =>
+  /^(?:\d+(?:\.\d+)*\.?\s+|第\s*\d+\s*[章节章]\s*|参考文献|参考资料|references|bibliography\b)/i.test(text)
+).length;
+
+const looksLikeAiTextbook = h1 <= 1 && h2Headings.length >= 2 && numberedH2 >= Math.min(2, h2Headings.length);
+const looksLikeMineruTextbook = h2 === 0 && h3 === 0;
+const importer = (looksLikeAiTextbook || looksLikeMineruTextbook)
+  ? 'import-textbook.js'
+  : 'import-paper.js';
+const importSlug = importer === 'import-textbook.js' ? '__root__' : 'paper';
 console.log(`Using importer:   ${importer}`);
+console.log(`Import target:    ${importSlug === '__root__' ? 'qmd/ (textbook chapters)' : 'qmd/paper/'}`);
 
 // 4. Run importer
 const importPath = path.join(TOOL_DIR, importer);
 const result = spawnSync(
   'node',
-  [importPath, md, 'paper'],
+  [importPath, md, importSlug],
   {
     cwd: target,
     stdio: 'inherit',
@@ -122,3 +134,14 @@ Then open Simple Browser in Positron at:
   http://localhost:4321/split
 ========================================================================
 `);
+
+function spawnCmd(script, args, options = {}) {
+  if (process.platform !== 'win32' || !script.toLowerCase().endsWith('.cmd')) {
+    return spawnSync(script, args, { ...options, shell: false });
+  }
+  return spawnSync(
+    process.env.ComSpec || 'cmd.exe',
+    ['/d', '/s', '/c', 'call', script, ...args],
+    { ...options, shell: false }
+  );
+}

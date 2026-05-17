@@ -1,5 +1,5 @@
 // Copy every image referenced by a .qmd into that .qmd file's sibling
-// images/ folder, then rewrite the markdown link to images/<file>.
+// image/ folder, then rewrite the markdown link to image/<file>.
 //
 // This keeps each note self-contained for later manual inspection.
 
@@ -13,6 +13,7 @@ const PROJECT_ROOT = process.env.PROJECT_ROOT
       : path.join(__dirname, '..'));
 
 const ROOT_QMD = path.join(PROJECT_ROOT, 'qmd');
+const LOCAL_IMAGE_DIR = 'image';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp']);
 
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
@@ -41,6 +42,7 @@ function listImageFiles(dir, out = []) {
 const imageByName = new Map();
 for (const img of [
   ...listImageFiles(ROOT_QMD),
+  ...listImageFiles(path.join(PROJECT_ROOT, 'image')),
   ...listImageFiles(path.join(PROJECT_ROOT, 'images')),
 ]) {
   const name = path.basename(img);
@@ -112,25 +114,30 @@ let missingImages = 0;
 
 for (const qmdFile of listQmdFiles(ROOT_QMD)) {
   const qmdDir = path.dirname(qmdFile);
-  const localImages = path.join(qmdDir, 'images');
-  const renderImages = path.join(chapterDirFor(qmdFile), 'images');
-  let content = fs.readFileSync(qmdFile, 'utf8');
-  let changed = false;
+  const localImages = path.join(qmdDir, LOCAL_IMAGE_DIR);
+  const renderImages = path.join(chapterDirFor(qmdFile), LOCAL_IMAGE_DIR);
+  const originalContent = fs.readFileSync(qmdFile, 'utf8');
+  let content = originalContent;
 
   content = content.replace(/(!\[[^\]]*\]\()([^)]+)(\)(?:\{[^}]*\})?)/g, (full, prefix, src, suffix) => {
     if (isExternal(src)) return full;
 
-    if (src.startsWith('images/')) {
+    if (/^images?\//.test(src)) {
       const localSource = resolveImage(qmdFile, src);
       if (!localSource) {
         missingImages++;
         return full;
       }
-      const renderDest = path.join(renderImages, path.basename(src));
-      if (path.resolve(localSource) !== path.resolve(renderDest) && copyIfNeeded(localSource, renderDest)) {
+      const localDest = path.join(localImages, path.basename(src));
+      if (path.resolve(localSource) !== path.resolve(localDest) && copyIfNeeded(localSource, localDest)) {
         copiedImages++;
       }
-      return full;
+      const renderDest = path.join(renderImages, path.basename(src));
+      const renderSource = isFile(localDest) ? localDest : localSource;
+      if (path.resolve(renderSource) !== path.resolve(renderDest) && copyIfNeeded(renderSource, renderDest)) {
+        copiedImages++;
+      }
+      return `${prefix}${LOCAL_IMAGE_DIR}/${path.basename(src)}${suffix}`;
     }
 
     const source = resolveImage(qmdFile, src);
@@ -164,11 +171,10 @@ for (const qmdFile of listQmdFiles(ROOT_QMD)) {
       copiedImages++;
     }
 
-    changed = true;
-    return `${prefix}images/${fileName}${suffix}`;
+    return `${prefix}${LOCAL_IMAGE_DIR}/${fileName}${suffix}`;
   });
 
-  if (changed) {
+  if (content !== originalContent) {
     fs.writeFileSync(qmdFile, content, 'utf8');
     changedFiles++;
   }
