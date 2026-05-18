@@ -84,6 +84,7 @@ async function renderOnly(context, uri, mode) {
   const session = sessions.get(normalizeKey(root));
   if (session) {
     await queueRender(session, async () => {
+      await runPreRenderTools(context, root);
       if (mode === 'pdf') {
         await runPdf(context, root, session);
       } else {
@@ -93,8 +94,10 @@ async function renderOnly(context, uri, mode) {
       updatePanel(session);
     });
   } else if (mode === 'pdf') {
+    await runPreRenderTools(context, root);
     await runPdf(context, root);
   } else {
+    await runPreRenderTools(context, root);
     await runHtml(context, root);
   }
 }
@@ -358,29 +361,30 @@ function organizeConvertedProject(root) {
 }
 
 async function runHtml(context, root, session) {
-  const toolDir = getToolDir(context);
   setStatus(session, 'rendering-html', 'HTML');
   output.appendLine('[render] html');
-  await runToolScript(toolDir, 'format-algorithms.js', root);
-  await runToolScript(toolDir, 'gen-includes.js', root);
-  await runToolScript(toolDir, 'localize-images.js', root);
   await runProcess(getQuartoPath(), ['render', '--to', 'html'], root);
   bumpHtmlBuild(session);
 }
 
 async function runPdf(context, root, session) {
-  const toolDir = getToolDir(context);
   setStatus(session, 'rendering-pdf', 'PDF');
   output.appendLine('[render] pdf');
+  await runProcess(getQuartoPath(), ['render', '--to', 'pdf', '--output-dir', '_pdf'], root);
+}
+
+async function runPreRenderTools(context, root) {
+  const toolDir = getToolDir(context);
+  output.appendLine('[render] prepare');
   await runToolScript(toolDir, 'format-algorithms.js', root);
   await runToolScript(toolDir, 'gen-includes.js', root);
   await runToolScript(toolDir, 'localize-images.js', root);
-  await runProcess(getQuartoPath(), ['render', '--to', 'pdf', '--output-dir', '_pdf'], root);
 }
 
 async function runPreviewBuild(context, root, session) {
   const renderHtml = vscode.workspace.getConfiguration('qmdtool').get('autoRenderHtmlOnSave', true);
   const renderPdf = vscode.workspace.getConfiguration('qmdtool').get('autoRenderPdfOnSave', true);
+  if (renderHtml || renderPdf) await runPreRenderTools(context, root);
   if (renderHtml) await runHtml(context, root, session);
   if (renderPdf) await runPdf(context, root, session);
 }
@@ -394,6 +398,7 @@ async function runToolScript(toolDir, scriptName, root) {
 function runProcess(command, args, cwd, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     output.appendLine(`> ${command} ${args.map(quoteArg).join(' ')}`);
+    const started = Date.now();
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...extraEnv },
@@ -405,12 +410,22 @@ function runProcess(command, args, cwd, extraEnv = {}) {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) {
+        output.appendLine(`[done] ${path.basename(command)} ${formatDuration(Date.now() - started)}`);
         resolve();
       } else {
         reject(new Error(`Command failed with exit code ${code}: ${command}`));
       }
     });
   });
+}
+
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${rest}`;
 }
 
 async function startStaticServer(session, toolDir) {

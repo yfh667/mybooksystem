@@ -23,6 +23,11 @@ function classifyHeadingText(text) {
   const t = stripTrailingHashes(text);
   if (isTocLike(t)) return { kind: 'toc', title: t };
 
+  const chinesePart = t.match(/^第\s*([一二三四五六七八九十百千万\d]+)\s*部分\s*(.*)$/);
+  if (chinesePart) {
+    return { kind: 'section', depth: 1, num: chinesePart[1], title: (chinesePart[2].trim() || t) };
+  }
+
   const chineseChapter = t.match(/^第\s*([一二三四五六七八九十百千万\d]+)\s*[章节篇]\s*(.*)$/);
   if (chineseChapter) {
     return { kind: 'section', depth: 1, num: chineseChapter[1], title: chineseChapter[2].trim() };
@@ -41,7 +46,7 @@ function classifyHeadingText(text) {
     }
   }
 
-  const numeric = t.match(/^(\d+(?:\.\d+){0,5})\.?\s+(.+)$/);
+  const numeric = t.match(/^(\d+(?:\.\d+){0,5})\.?(?:\s+|(?=[\p{Script=Han}（(《“]))(.+)$/u);
   if (numeric) {
     return {
       kind: 'section',

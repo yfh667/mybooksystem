@@ -93,7 +93,13 @@ def has_existing_output(output_dir: Path) -> bool:
     return output_dir.exists() and any(output_dir.iterdir())
 
 
-def build_command(mineru_bin: str, pdf_path: Path, output_dir: Path, api_url: str) -> list[str]:
+def build_command(
+    mineru_bin: str,
+    pdf_path: Path,
+    output_dir: Path,
+    api_url: str,
+    extra_args: list[str] | None = None,
+) -> list[str]:
     if mineru_bin == "auto":
         mineru_bin = resolve_mineru_bin()
     command_prefix = shlex.split(mineru_bin, posix=os.name != "nt")
@@ -106,6 +112,8 @@ def build_command(mineru_bin: str, pdf_path: Path, output_dir: Path, api_url: st
     ]
     if api_url:
         command.extend(["--api-url", api_url])
+    if extra_args:
+        command.extend(extra_args)
     return command
 
 

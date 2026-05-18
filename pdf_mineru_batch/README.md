@@ -112,6 +112,49 @@ cd C:\Users\Administrator\Desktop\qmdtool\mybooksystem\pdf_mineru_batch
 C:\ProgramData\miniconda3\envs\mineru\python.exe .\run_pipeline_local_direct.py
 ```
 
+## run_pipeline_local_auto_split.py
+
+Purpose: local workflow with automatic splitting for large PDFs.
+
+It checks page count before running MinerU:
+
+```text
+page_count <= MAX_LENGTH
+  run MinerU once
+
+page_count > MAX_LENGTH
+  run MinerU by page ranges
+  merge split Markdown and images with bigfile.merge_parts()
+```
+
+Open this file in VSCode and edit:
+
+```python
+INPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\renamed_pdfs")
+OUTPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\output")
+MAX_LENGTH = 100
+```
+
+Direct Python command example:
+
+```powershell
+cd C:\Users\Administrator\Desktop\qmdtool\mybooksystem\pdf_mineru_batch
+C:\ProgramData\miniconda3\envs\mineru\python.exe .\run_pipeline_local_auto_split.py
+```
+
+Split part outputs are stored under:
+
+```text
+OUTPUT_FOLDER\_parts\<pdf-name>\<pdf-name>_p001
+OUTPUT_FOLDER\_parts\<pdf-name>\<pdf-name>_p002
+```
+
+Merged final output is stored under:
+
+```text
+OUTPUT_FOLDER\<pdf-name>
+```
+
 ## collect_pdfs.py
 
 Purpose: recursively scan a folder, copy every PDF into one external data folder, rename copied PDFs to `pdf001.pdf`, `pdf002.pdf`, ..., and write a CSV manifest.
