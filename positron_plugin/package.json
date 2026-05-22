@@ -1,0 +1,126 @@
+{
+  "name": "qmdtool-positron",
+  "displayName": "QmdTool for Positron",
+  "description": "Convert Markdown + image folders into QmdTool Quarto books and preview HTML or PDF inside Positron.",
+  "version": "0.1.0",
+  "publisher": "local-qmdtool",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "scripts": {
+    "package": "vsce package --allow-missing-repository",
+    "install:positron": "positron --install-extension qmdtool-positron-0.1.0.vsix --force",
+    "install:vscode": "code --install-extension qmdtool-positron-0.1.0.vsix --force"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  },
+  "files": [
+    "extension.js",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "tool/**"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:qmdtool.convertAndPreview",
+    "onCommand:qmdtool.previewHtml",
+    "onCommand:qmdtool.previewPdf",
+    "onCommand:qmdtool.renderHtml",
+    "onCommand:qmdtool.renderPdf",
+    "onCommand:qmdtool.stopPreview"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "qmdtool.convertAndPreview",
+        "title": "QmdTool: Convert & Preview",
+        "category": "QmdTool"
+      },
+      {
+        "command": "qmdtool.previewHtml",
+        "title": "QmdTool: Preview HTML",
+        "category": "QmdTool"
+      },
+      {
+        "command": "qmdtool.previewPdf",
+        "title": "QmdTool: Preview PDF",
+        "category": "QmdTool"
+      },
+      {
+        "command": "qmdtool.renderHtml",
+        "title": "QmdTool: Render HTML",
+        "category": "QmdTool"
+      },
+      {
+        "command": "qmdtool.renderPdf",
+        "title": "QmdTool: Render PDF",
+        "category": "QmdTool"
+      },
+      {
+        "command": "qmdtool.stopPreview",
+        "title": "QmdTool: Stop Preview Server",
+        "category": "QmdTool"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "qmdtool.convertAndPreview",
+          "group": "navigation@80"
+        },
+        {
+          "command": "qmdtool.previewHtml",
+          "group": "navigation@81"
+        },
+        {
+          "command": "qmdtool.previewPdf",
+          "group": "navigation@82"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "qmdtool.convertAndPreview",
+          "when": "resourceExtname == .md || resourceExtname == .qmd",
+          "group": "navigation@80"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "QmdTool",
+      "properties": {
+        "qmdtool.toolDir": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the existing qmdtool tool directory. Empty means ../tool beside this extension."
+        },
+        "qmdtool.quartoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to quarto.exe. Empty means auto-detect or use quarto on PATH."
+        },
+        "qmdtool.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to node.exe. Empty means use node on PATH."
+        },
+        "qmdtool.autoRenderHtmlOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically render HTML when qmd/yml files change in the active workspace."
+        },
+        "qmdtool.autoRenderPdfOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically render PDF after HTML when qmd/yml files change in the active workspace. Keep this off for large books and render PDF manually."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+﻿# Chapter
+
+<!-- @@{{< include subdir/source.qmd >}} -->
+{{< include .qmdtool-includes/h2__subdir_source.qmd >}}

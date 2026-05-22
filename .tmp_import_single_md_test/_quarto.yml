@@ -1,0 +1,11 @@
+﻿project:
+  type: book
+  output-dir: _book
+book:
+  title: "Test Book"
+  chapters:
+    - index.qmd
+    - qmd/ga-book/ga-book.qmd
+format:
+  html:
+    toc: true

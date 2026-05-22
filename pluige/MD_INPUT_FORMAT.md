@@ -425,6 +425,114 @@ Do not use random heading levels just for font size.
 
 Do not put multiple books or papers into one `.md` file.
 
+## Batch LaTeX Simulation Check
+
+Before giving a Markdown file to QmdTool, later AI agents must validate formulas with real XeLaTeX compilation. Do not keep a suspicious OCR formula because it "looks close enough".
+
+QmdTool's importer treats source Markdown math as TeX math bodies wrapped by Markdown delimiters. It normalizes only the wrapper:
+
+- `\(...\)` becomes `$...$`
+- `\[...\]` becomes `$$...$$`
+- `$ ... $` whitespace is tightened so Pandoc recognizes inline math
+- HTML tables are converted to Markdown pipe tables
+
+Therefore, formula validation must extract the math body and compile it as TeX. Do not judge formulas by plain Markdown display, and do not rely on model intuition alone.
+
+Use this workflow:
+
+1. Keep the original file unchanged.
+2. Create a sibling copy named `*_qmdtool_fixed.md`.
+3. Extract all formula blocks from the copy:
+   - inline math: `$...$`
+   - display math: `$$...$$`, `\[...\]`
+   - raw LaTeX environments inside math: `\begin{...}...\end{...}`
+4. Compile every extracted formula body in a minimal XeLaTeX document.
+5. If a batch fails, split the batch until the exact source line is found.
+6. Fix the source line, then compile the snippet again.
+7. Check Markdown tables separately for column consistency and raw HTML table leftovers.
+8. Only after all formulas pass, run the full QmdTool/Quarto PDF render.
+
+The QmdTool helper command is:
+
+```powershell
+node "C:\Users\Administrator\Desktop\qmdtool\mybooksystem\tool\latex-risk-scan.js" "PATH\TO\file_or_qmd_dir" --fix --compile --report "PATH\TO\latex-risk-report.json"
+```
+
+Common XeLaTeX errors and required fixes:
+
+| Error | Common MinerU/OCR cause | Required fix |
+|---|---|---|
+| `Undefined control sequence` | Fake commands such as `\uparrows`, or unsupported OCR noise such as random `\mathscr` blocks | Replace with the intended legal formula if obvious; otherwise replace the whole math block with `[Removed OCR-damaged formula block.]` |
+| `Extra alignment tab has been changed to \cr` | OCR converted one-line formulas into `array` with too many `&` cells | Rewrite as normal math, e.g. `$f_B(n)=g_B(n)+h_B(n)$`; do not leave broken `array` |
+| `Argument of \qopname has an extra }` | Garbage like `\operatorname \operatorname { ~ }` or many repeated `\operatorname { ~ }` | Replace with the intended symbol if context is clear, e.g. `$\operatorname{erf}$`; otherwise remove the math block |
+| `Missing { inserted` or `Missing } inserted` | Unbalanced OCR braces inside math | Rebuild the formula manually or remove it if the meaning is unrecoverable |
+| `Missing $ inserted` | Broken Markdown delimiter, such as `$\operatorname{erf}$$`, or text accidentally captured inside display math | Fix the `$...$` / `$$...$$` boundaries before changing formula content |
+| blank error / XeLaTeX timeout | Bad accent or font command nesting, e.g. `\mathbf{\dot{\omega}}`, `\operatorname{\hat{\rho}}` | Rewrite as simple valid TeX such as `\omega_i`, `\hat{\rho}(x)`, `\dot{\alpha}_1` |
+| PDF compiles but formula is meaningless OCR noise | Long blocks full of `\sharp`, `\sqcup`, `\mathbb`, `\jmath`, `\operatorname { ~ }` | Remove or replace with a short plain-text note |
+
+Known repair examples:
+
+```markdown
+Bad:
+$\begin{array} { r c l } { f _ { B } ( n ) } & { = } & { g _ { B } ( n ) } & { + } \end{array}$ $h _ { B } ( n )$
+
+Good:
+$f_B(n)=g_B(n)+h_B(n)$
+```
+
+```markdown
+Bad:
+$\mathrm { U } \uparrows ... \updownarrow ...$
+
+Good:
+$\mathrm{UTILITY}(loss,p) \le EVAL(s,p) \le \mathrm{UTILITY}(win,p)$
+```
+
+```markdown
+Bad:
+$\operatorname { \Pi } ... \operatorname \operatorname { ~ } ...$
+
+Good if context says this is the error function:
+$\operatorname{erf}$
+
+Otherwise:
+[Removed OCR-damaged formula block.]
+```
+
+More OCR command repairs seen in real MinerU textbook input:
+
+```markdown
+Bad:
+$Q ^ { \dprime }$
+$| p \rrangle$
+$\mathbfcal { P }$
+$\overrightharpoon { p }$
+$\mathbf { \mathscr { W } } ^ { ( i - 1 ) } = \pmb { \mathscr { 0 } }$
+
+Good:
+$Q'$
+$|p\rangle$
+$\mathcal { P }$
+$p$
+$\pmb { W } ^ { ( i - 1 ) } = \pmb { 0 }$
+```
+
+Markdown delimiter repairs:
+
+```markdown
+Bad:
+其中 $\operatorname{erf}$$ 即所谓的误差函数。
+
+Good:
+其中 $\operatorname{erf}$ 即所谓的误差函数。
+```
+
+Tables are not formula-compiled. For tables, the source Markdown must use pipe tables with the same number of cells in every row. Raw `<table>...</table>` should be converted by the importer; if a table still breaks PDF, simplify it to a standard pipe table or plain text.
+
+PowerShell/encoding note:
+
+Windows PowerShell output may display UTF-8 Markdown as garbled text. Do not conclude the file is corrupted from terminal display alone. Read and write with Node.js UTF-8 APIs, or use `Get-Content -Encoding UTF8`.
+
 ## Minimal Example
 
 ```markdown

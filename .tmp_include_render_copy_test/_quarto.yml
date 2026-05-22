@@ -1,0 +1,6 @@
+﻿project:
+  type: book
+book:
+  chapters:
+    - index.qmd
+    - qmd/chapter/chapter.qmd

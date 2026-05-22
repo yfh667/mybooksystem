@@ -4,9 +4,25 @@
   "description": "Convert Markdown + image folders into QmdTool Quarto books and preview HTML or PDF inside Positron.",
   "version": "0.1.0",
   "publisher": "local-qmdtool",
+  "private": true,
   "engines": {
     "vscode": "^1.85.0"
   },
+  "scripts": {
+    "package": "vsce package --allow-missing-repository",
+    "install:positron": "positron --install-extension qmdtool-positron-0.1.0.vsix --force",
+    "install:vscode": "code --install-extension qmdtool-positron-0.1.0.vsix --force"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  },
+  "files": [
+    "extension.js",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "tool/**"
+  ],
   "categories": [
     "Other"
   ],
