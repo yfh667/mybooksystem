@@ -1,5 +1,6 @@
 // Copy every image referenced by a .qmd into that .qmd file's sibling
 // images/ folder, then rewrite the markdown link to images/<file>.
+// With --prune-unused, remove unreferenced files under qmd/**/images/.
 //
 // This keeps each note self-contained for later manual inspection.
 
@@ -15,6 +16,7 @@ const PROJECT_ROOT = process.env.PROJECT_ROOT
 const ROOT_QMD = path.join(PROJECT_ROOT, 'qmd');
 const LOCAL_IMAGE_DIR = 'images';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp']);
+const PRUNE_UNUSED = process.argv.includes('--prune-unused');
 
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
 function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
@@ -37,6 +39,16 @@ function listImageFiles(dir, out = []) {
     else if (entry.isFile() && IMAGE_EXT.has(path.extname(entry.name).toLowerCase())) out.push(p);
   }
   return out;
+}
+
+function pathKey(p) {
+  return path.resolve(p).toLowerCase();
+}
+
+function isManagedImageFile(img) {
+  const rel = path.relative(ROOT_QMD, img);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  return rel.split(path.sep).some(part => part.toLowerCase() === LOCAL_IMAGE_DIR);
 }
 
 const imageByName = new Map();
@@ -111,6 +123,12 @@ function copyIfNeeded(source, dest) {
 let changedFiles = 0;
 let copiedImages = 0;
 let missingImages = 0;
+let prunedImages = 0;
+const usedImages = new Set();
+
+function markUsed(img) {
+  if (img && isManagedImageFile(img)) usedImages.add(pathKey(img));
+}
 
 for (const qmdFile of listQmdFiles(ROOT_QMD)) {
   const qmdDir = path.dirname(qmdFile);
@@ -128,15 +146,18 @@ for (const qmdFile of listQmdFiles(ROOT_QMD)) {
         missingImages++;
         return full;
       }
+      markUsed(localSource);
       const localDest = path.join(localImages, path.basename(src));
       if (path.resolve(localSource) !== path.resolve(localDest) && copyIfNeeded(localSource, localDest)) {
         copiedImages++;
       }
+      markUsed(localDest);
       const renderDest = path.join(renderImages, path.basename(src));
       const renderSource = isFile(localDest) ? localDest : localSource;
       if (path.resolve(renderSource) !== path.resolve(renderDest) && copyIfNeeded(renderSource, renderDest)) {
         copiedImages++;
       }
+      markUsed(renderDest);
       return `${prefix}${LOCAL_IMAGE_DIR}/${path.basename(src)}${suffix}`;
     }
 
@@ -145,6 +166,7 @@ for (const qmdFile of listQmdFiles(ROOT_QMD)) {
       missingImages++;
       return full;
     }
+    markUsed(source);
 
     fs.mkdirSync(localImages, { recursive: true });
     let fileName = path.basename(source);
@@ -165,13 +187,21 @@ for (const qmdFile of listQmdFiles(ROOT_QMD)) {
       fs.copyFileSync(source, dest);
       copiedImages++;
     }
+    markUsed(dest);
 
     const renderDest = path.join(renderImages, fileName);
     if (path.resolve(dest) !== path.resolve(renderDest) && copyIfNeeded(dest, renderDest)) {
       copiedImages++;
     }
+    markUsed(renderDest);
 
     return `${prefix}${LOCAL_IMAGE_DIR}/${fileName}${suffix}`;
+  });
+
+  content.replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi, (_full, _prefix, src) => {
+    const source = resolveImage(qmdFile, src);
+    if (source) markUsed(source);
+    return _full;
   });
 
   if (content !== originalContent) {
@@ -180,4 +210,16 @@ for (const qmdFile of listQmdFiles(ROOT_QMD)) {
   }
 }
 
-console.log(`localize-images: updated ${changedFiles} file(s), copied ${copiedImages} image(s), missing ${missingImages}.`);
+if (PRUNE_UNUSED) {
+  for (const img of listImageFiles(ROOT_QMD)) {
+    if (!isManagedImageFile(img)) continue;
+    if (usedImages.has(pathKey(img))) continue;
+    fs.rmSync(img, { force: true });
+    prunedImages++;
+  }
+}
+
+console.log(
+  `localize-images: updated ${changedFiles} file(s), copied ${copiedImages} image(s), ` +
+  `missing ${missingImages}, pruned ${prunedImages}.`
+);

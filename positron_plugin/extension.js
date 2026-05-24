@@ -376,9 +376,10 @@ async function runPdf(context, root, session) {
 async function runPreRenderTools(context, root) {
   const toolDir = getToolDir(context);
   output.appendLine('[render] prepare');
+  await runToolScript(toolDir, 'normalize-encoding.js', root);
   await runToolScript(toolDir, 'format-algorithms.js', root);
   await runToolScript(toolDir, 'gen-includes.js', root);
-  await runToolScript(toolDir, 'localize-images.js', root);
+  await runToolScript(toolDir, 'localize-images.js', root, ['--prune-unused']);
 }
 
 async function runPreviewBuild(context, root, session) {
@@ -389,10 +390,10 @@ async function runPreviewBuild(context, root, session) {
   if (renderPdf) await runPdf(context, root, session);
 }
 
-async function runToolScript(toolDir, scriptName, root) {
+async function runToolScript(toolDir, scriptName, root, args = []) {
   const script = path.join(toolDir, scriptName);
   assertFile(script, scriptName);
-  await runProcess(getNodePath(), [script], root);
+  await runProcess(getNodePath(), [script, ...args], root);
 }
 
 function runProcess(command, args, cwd, extraEnv = {}) {

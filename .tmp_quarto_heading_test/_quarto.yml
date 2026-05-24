@@ -1,0 +1,10 @@
+﻿project:
+  type: book
+  output-dir: _book
+book:
+  title: Test
+  chapters:
+    - index.qmd
+    - chapter.qmd
+format:
+  html: default
