@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const sessions = new Map();
 let output;
 let statusBar;
+let newProjectStatusBar;
 
 function activate(context) {
   console.log('[QmdTool] extension activated');
@@ -19,7 +20,22 @@ function activate(context) {
   statusBar.command = 'qmdtool.convertAndPreview';
   statusBar.show();
 
-  context.subscriptions.push(output, statusBar);
+  newProjectStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+  newProjectStatusBar.text = '$(new-folder) 新建 Qmd 项目';
+  newProjectStatusBar.tooltip = '在当前工作目录生成 Quarto book 模板';
+  newProjectStatusBar.command = 'qmdtool.newProject';
+
+  context.subscriptions.push(output, statusBar, newProjectStatusBar);
+  updateNewProjectStatusBar();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(updateNewProjectStatusBar),
+  );
+  const quartoYmlWatcher = vscode.workspace.createFileSystemWatcher('**/_quarto.yml');
+  quartoYmlWatcher.onDidCreate(updateNewProjectStatusBar);
+  quartoYmlWatcher.onDidDelete(updateNewProjectStatusBar);
+  context.subscriptions.push(quartoYmlWatcher);
+
+  context.subscriptions.push(register('qmdtool.newProject', (uri) => newProject(context, uri)));
   context.subscriptions.push(register('qmdtool.convertAndPreview', (uri) => convertAndPreview(context, uri)));
   context.subscriptions.push(register('qmdtool.previewHtml', (uri) => preview(context, uri, 'html')));
   context.subscriptions.push(register('qmdtool.previewPdf', (uri) => preview(context, uri, 'pdf')));
@@ -1561,6 +1577,124 @@ function mimeType(file) {
 
 function normalizeKey(file) {
   return path.resolve(file).toLowerCase();
+}
+
+async function newProject(context, uri) {
+  let targetDir;
+  if (uri && uri.fsPath) {
+    const stat = fs.existsSync(uri.fsPath) ? fs.statSync(uri.fsPath) : undefined;
+    targetDir = stat && stat.isDirectory() ? uri.fsPath : path.dirname(uri.fsPath);
+  } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+    targetDir = vscode.workspace.workspaceFolders[0].uri.fsPath;
+  } else {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      title: '选择要创建 Quarto 项目的文件夹',
+      openLabel: '在此创建',
+    });
+    if (!picked || picked.length === 0) return;
+    targetDir = picked[0].fsPath;
+  }
+
+  if (fs.existsSync(path.join(targetDir, '_quarto.yml'))) {
+    vscode.window.showWarningMessage(
+      `目录已经是 Quarto 项目（存在 _quarto.yml）：${targetDir}`,
+    );
+    return;
+  }
+
+  const visibleEntries = fs.existsSync(targetDir)
+    ? fs.readdirSync(targetDir).filter((n) => !n.startsWith('.'))
+    : [];
+  if (visibleEntries.length > 0) {
+    const choice = await vscode.window.showWarningMessage(
+      `目录非空（${visibleEntries.length} 个可见项）。仍然在此创建模板吗？已有的同名文件不会被覆盖。`,
+      { modal: true },
+      '继续',
+    );
+    if (choice !== '继续') return;
+  }
+
+  const templateDir = path.join(context.extensionPath, 'templates', 'book');
+  if (!fs.existsSync(templateDir)) {
+    throw new Error(`模板目录不存在：${templateDir}`);
+  }
+
+  output.show(true);
+  output.appendLine(`\n[new-project] target = ${targetDir}`);
+
+  const created = copyTemplate(templateDir, targetDir);
+
+  const qmdDir = path.join(targetDir, 'qmd');
+  if (!fs.existsSync(qmdDir)) {
+    fs.mkdirSync(qmdDir, { recursive: true });
+    created.push('qmd/');
+  }
+
+  for (const item of created) {
+    output.appendLine(`[new-project] + ${item}`);
+  }
+  if (created.length === 0) {
+    output.appendLine('[new-project] nothing copied (all files already existed)');
+  }
+
+  updateNewProjectStatusBar();
+
+  const indexQmd = path.join(targetDir, 'index.qmd');
+  if (fs.existsSync(indexQmd)) {
+    try {
+      const doc = await vscode.workspace.openTextDocument(indexQmd);
+      await vscode.window.showTextDocument(doc);
+    } catch (e) {
+      output.appendLine(`[new-project] open index.qmd failed: ${e.message}`);
+    }
+  }
+
+  vscode.window.showInformationMessage(
+    `Quarto 项目模板已创建（${created.length} 项）。直接编辑 index.qmd 和 _quarto.yml 即可。`,
+  );
+}
+
+function copyTemplate(srcDir, dstDir) {
+  const created = [];
+  if (!fs.existsSync(dstDir)) fs.mkdirSync(dstDir, { recursive: true });
+  for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = path.join(srcDir, entry.name);
+    const dstName = templateNameToReal(entry.name);
+    const dstPath = path.join(dstDir, dstName);
+    if (entry.isDirectory()) {
+      const subCreated = copyTemplate(srcPath, dstPath);
+      created.push(...subCreated.map((p) => path.join(dstName, p)));
+    } else if (entry.isFile()) {
+      if (fs.existsSync(dstPath)) continue;
+      fs.copyFileSync(srcPath, dstPath);
+      created.push(dstName);
+    }
+  }
+  return created;
+}
+
+function templateNameToReal(name) {
+  if (name === 'gitignore') return '.gitignore';
+  if (name === 'dot-vscode') return '.vscode';
+  return name;
+}
+
+function updateNewProjectStatusBar() {
+  if (!newProjectStatusBar) return;
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    newProjectStatusBar.hide();
+    return;
+  }
+  const root = folders[0].uri.fsPath;
+  if (fs.existsSync(path.join(root, '_quarto.yml'))) {
+    newProjectStatusBar.hide();
+  } else {
+    newProjectStatusBar.show();
+  }
 }
 
 module.exports = {

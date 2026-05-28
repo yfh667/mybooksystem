@@ -1,0 +1,47 @@
+project:
+  type: book
+  output-dir: _book
+
+editor:
+  render-on-save: false
+
+execute:
+  eval: false
+  echo: true
+
+book:
+  title: "My Book"
+  author: "Your Name"
+  date: today
+  chapters:
+    - index.qmd
+    - qmd/chapter1/chapter1.qmd
+
+bibliography: references.bib
+csl: ieee.csl
+link-citations: true
+link-bibliography: true
+suppress-bibliography: true
+
+format:
+  html:
+    theme: [cosmo]
+    toc: true
+    number-sections: true
+    search: true
+    include-in-header:
+      - autoreload.html
+  pdf:
+    pdf-engine: xelatex
+    mainfont: "Times New Roman"
+    documentclass: scrreprt
+    classoption:
+      - enabledeprecatedfontcommands
+    toc: true
+    number-sections: true
+    include-in-header:
+      text: |
+        \usepackage{xeCJK}
+        \setCJKmainfont{SimSun}
+        \usepackage{fvextra}
+        \fvset{breaklines=true,breakanywhere=true}

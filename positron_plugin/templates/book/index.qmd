@@ -1,0 +1,18 @@
+# 前言 {.unnumbered}
+
+这是一本新的 Quarto 书。直接编辑 `_quarto.yml` 修改书名和作者。
+
+## 模板里的演示
+
+为了让你照着改就会用，模板自带了一个示例章节：
+
+- `qmd/chapter1/chapter1.qmd` — 章节主体。它**已经登记在** `_quarto.yml` 的 `book.chapters` 里。
+- `qmd/chapter1/main/test.qmd` — 被章节通过 `{{< include main/test.qmd >}}` **包含进来**的片段。
+
+打开这两个文件看一眼就懂了。
+
+## 加一个新章节的标准流程
+
+1. 在 `qmd/` 下新建一个目录，例如 `qmd/chapter2/`，里面放 `chapter2.qmd`。
+2. 在 `_quarto.yml` 的 `book.chapters` 末尾追加一行：`- qmd/chapter2/chapter2.qmd`。
+3. 想把一个大章节拆成多个小文件，就在章节目录下再建子目录（如 `main/`、`appendix/`），用 `{{< include 子目录/片段.qmd >}}` 把片段拼进来。include 的路径相对**当前 qmd 文件**所在目录。

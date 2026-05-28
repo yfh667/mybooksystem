@@ -1,0 +1,24 @@
+# Quarto build outputs
+_book/
+_pdf/
+.quarto/
+.quarto-preview.*.log
+
+# Watcher runtime state
+.watcher.lock
+.watcher-status.json
+watcher.log
+watcher.err.log
+server.log
+server.err.log
+
+# Backups created by importers when re-importing
+_import-backup/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+
+/.quarto/
+**/*.quarto_ipynb

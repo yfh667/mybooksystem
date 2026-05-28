@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0">
+  <info>
+    <title>Simple IEEE Numeric</title>
+    <id>https://example.com/styles/simple-ieee-numeric</id>
+    <link href="https://www.zotero.org/styles/ieee" rel="template"/>
+    <category citation-format="numeric"/>
+    <category field="engineering"/>
+    <updated>2026-05-12T00:00:00+00:00</updated>
+  </info>
+
+  <macro name="author">
+    <names variable="author">
+      <name initialize-with=". " delimiter=", "/>
+      <label form="short" prefix=", "/>
+      <substitute>
+        <names variable="editor"/>
+        <text variable="title"/>
+      </substitute>
+    </names>
+  </macro>
+
+  <macro name="issued-year">
+    <date variable="issued">
+      <date-part name="year"/>
+    </date>
+  </macro>
+
+  <macro name="container">
+    <choose>
+      <if type="article-journal">
+        <group delimiter=", ">
+          <text variable="container-title" font-style="italic"/>
+          <text variable="volume" prefix="vol. "/>
+          <text variable="issue" prefix="no. "/>
+          <text variable="page" prefix="pp. "/>
+        </group>
+      </if>
+      <else-if type="paper-conference">
+        <group delimiter=", ">
+          <text variable="container-title" prefix="in " font-style="italic"/>
+          <text variable="page" prefix="pp. "/>
+        </group>
+      </else-if>
+      <else>
+        <group delimiter=", ">
+          <text variable="container-title" font-style="italic"/>
+          <text variable="publisher"/>
+          <text variable="page" prefix="pp. "/>
+        </group>
+      </else>
+    </choose>
+  </macro>
+
+  <macro name="access">
+    <choose>
+      <if variable="DOI">
+        <text variable="DOI" prefix="doi: "/>
+      </if>
+      <else-if variable="URL">
+        <text variable="URL" prefix="Available: "/>
+      </else-if>
+    </choose>
+  </macro>
+
+  <citation collapse="citation-number">
+    <sort>
+      <key variable="citation-number"/>
+    </sort>
+    <layout prefix="[" suffix="]" delimiter=", ">
+      <text variable="citation-number"/>
+    </layout>
+  </citation>
+
+  <bibliography entry-spacing="0" second-field-align="flush">
+    <layout suffix=".">
+      <text variable="citation-number" prefix="[" suffix="]"/>
+      <group delimiter=", ">
+        <text macro="author"/>
+        <text variable="title" quotes="true"/>
+        <text macro="container"/>
+        <text macro="issued-year"/>
+        <text macro="access"/>
+      </group>
+    </layout>
+  </bibliography>
+</style>

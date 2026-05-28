@@ -1,0 +1,40 @@
+# 第一章：示例 {#sec-chapter1}
+
+这一章是个**活示例**，演示两件事：章节怎么挂到全书、章节内部怎么拆成多个文件再合起来。
+
+## 1. 这个章节是怎么被"挂"到全书上的
+
+打开根目录的 `_quarto.yml`，会看到这样一段：
+
+````yaml
+book:
+  chapters:
+    - index.qmd
+    - qmd/chapter1/chapter1.qmd
+````
+
+`chapters:` 下面每一行就是一个章节，按顺序排版。要加新章节就再追加一行路径，比如：
+
+````yaml
+    - qmd/chapter2/chapter2.qmd
+````
+
+路径是**相对项目根目录**写的。
+
+## 2. 把章节拆成多个小文件再合起来
+
+下面这一行是 Quarto 的 include 短代码，它会把另一个 qmd 文件的内容**原地展开**到这里：
+
+{{< include main/test.qmd >}}
+
+注意上面那条 include 行：
+
+- 必须**自己一行**，前后留空行。
+- 路径是相对**当前文件所在目录**写的，所以 `main/test.qmd` 实际对应 `qmd/chapter1/main/test.qmd`。
+- 被 include 的片段会无缝拼进章节，标题层级、交叉引用、图片路径都正常工作。
+
+## 怎么照着加
+
+想再拆一个片段？在 `qmd/chapter1/main/` 下复制 `test.qmd` 改个名（比如 `intro.qmd`），然后在本文件里再写一行 `{{< include main/intro.qmd >}}` 就行。
+
+想加新章节？把整个 `qmd/chapter1/` 目录复制成 `qmd/chapter2/`，把里面的 `chapter1.qmd` 改名成 `chapter2.qmd`，再到 `_quarto.yml` 的 `chapters:` 里登记一下即可。

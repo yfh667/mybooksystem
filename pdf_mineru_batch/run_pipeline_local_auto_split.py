@@ -38,8 +38,8 @@ warnings.filterwarnings("ignore", module="pypdf")
 # CONFIG: edit these values
 # =========================
 
-INPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\failed3")
-OUTPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mainpaper\\failed3\output")
+INPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mineru_test")
+OUTPUT_FOLDER = Path(r"C:\Users\Administrator\Desktop\mineru_test\chuanoutput")
 
 # Maximum pages for one MinerU run. Larger PDFs are processed in parts.
 MAX_LENGTH = 300

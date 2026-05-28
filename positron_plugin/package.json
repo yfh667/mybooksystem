@@ -21,13 +21,15 @@
     "README.md",
     "LICENSE",
     "package.json",
-    "tool/**"
+    "tool/**",
+    "templates/**"
   ],
   "categories": [
     "Other"
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:qmdtool.newProject",
     "onCommand:qmdtool.convertAndPreview",
     "onCommand:qmdtool.previewHtml",
     "onCommand:qmdtool.previewPdf",
@@ -38,6 +40,11 @@
   "main": "./extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "qmdtool.newProject",
+        "title": "QmdTool: 新建 Quarto 项目",
+        "category": "QmdTool"
+      },
       {
         "command": "qmdtool.convertAndPreview",
         "title": "QmdTool: Convert & Preview",
@@ -71,6 +78,11 @@
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "qmdtool.newProject",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@79"
+        },
         {
           "command": "qmdtool.convertAndPreview",
           "group": "navigation@80"

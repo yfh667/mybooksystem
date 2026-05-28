@@ -1,0 +1,154 @@
+<script>
+(function() {
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+
+  // ============================================================
+  //  Status badge + auto-reload  (polls /status)
+  // ============================================================
+  const STATE_STYLE = {
+    'starting':       { bg: '#777', fg: '#fff', txt: 'starting',          spin: false },
+    'idle':           { bg: '#2a8', fg: '#fff', txt: 'idle',              spin: false },
+    'scanning':       { bg: '#48a', fg: '#fff', txt: 'scanning sources',  spin: true  },
+    'rendering-html': { bg: '#d80', fg: '#fff', txt: 'rendering HTML',    spin: true  },
+    'rendering-pdf':  { bg: '#86a', fg: '#fff', txt: 'rendering PDF',     spin: true  },
+    'error':          { bg: '#c33', fg: '#fff', txt: 'error',             spin: false },
+    'stopped':        { bg: '#444', fg: '#bbb', txt: 'watcher stopped',   spin: false },
+    'unknown':        { bg: '#666', fg: '#bbb', txt: 'no watcher?',       spin: false },
+  };
+
+  function ensureBadge() {
+    let badge = document.getElementById('__kb_status__');
+    if (badge) return badge;
+    badge = document.createElement('div');
+    badge.id = '__kb_status__';
+    badge.style.cssText =
+      'position:fixed;top:10px;right:12px;z-index:99999;' +
+      'font:12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;' +
+      'padding:5px 10px 5px 24px;border-radius:14px;' +
+      'background:#444;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);' +
+      'transition:background .25s, opacity .3s;pointer-events:none;' +
+      'user-select:none;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis;';
+    const dot = document.createElement('span');
+    dot.id = '__kb_status_dot__';
+    dot.style.cssText =
+      'position:absolute;left:9px;top:50%;width:8px;height:8px;margin-top:-4px;' +
+      'border-radius:50%;background:#fff;opacity:.9;';
+    badge.appendChild(dot);
+    const txt = document.createElement('span');
+    txt.id = '__kb_status_txt__';
+    badge.appendChild(txt);
+    if (!document.getElementById('__kb_status_css__')) {
+      const css = document.createElement('style');
+      css.id = '__kb_status_css__';
+      css.textContent =
+        '@keyframes __kb_pulse__ { 0%,100%{transform:scale(1);opacity:1;} 50%{transform:scale(1.6);opacity:.5;} }';
+      document.head.appendChild(css);
+    }
+    document.body.appendChild(badge);
+    return badge;
+  }
+
+  function paintBadge(s) {
+    const badge = ensureBadge();
+    const style = STATE_STYLE[s.state] || STATE_STYLE['unknown'];
+    badge.style.background = style.bg;
+    badge.style.color = style.fg;
+    const dot = document.getElementById('__kb_status_dot__');
+    dot.style.animation = style.spin ? '__kb_pulse__ .9s ease-in-out infinite' : '';
+    const txt = document.getElementById('__kb_status_txt__');
+    let label = style.txt;
+    if (s.message && s.state !== 'idle') label += ' — ' + s.message;
+    txt.textContent = label;
+    badge.style.opacity = (s.state === 'idle') ? '0.55' : '1';
+  }
+
+  let lastBuildId = null;
+  let inFlight = false;
+  async function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const r = await fetch('/status?_=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const s = await r.json();
+      paintBadge(s);
+      // Reload when the HTML build counter advances, but wait until we're no
+      // longer mid-render so we don't reload onto a 404.
+      const settled = s.state === 'idle' || s.state === 'rendering-pdf' || s.state === 'error';
+      if (typeof s.buildId === 'number' && settled) {
+        if (lastBuildId === null) {
+          lastBuildId = s.buildId;
+        } else if (s.buildId !== lastBuildId) {
+          lastBuildId = s.buildId;
+          location.reload();
+        }
+      }
+    } catch (e) {
+    } finally {
+      inFlight = false;
+    }
+  }
+  poll();
+  setInterval(poll, 700);
+
+  // ============================================================
+  //  Ctrl/Cmd+Click → jump to source .qmd in Positron
+  // ============================================================
+  const BLOCK_TAGS = new Set(['P','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','PRE','TD','TH','DT','DD','FIGCAPTION']);
+
+  function findBlock(node) {
+    let el = node;
+    while (el && el !== document.body) {
+      if (BLOCK_TAGS.has(el.tagName)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  async function jumpToSource(ev) {
+    // Always show a toast for visibility (debug-friendly).
+    if (!(ev.ctrlKey || ev.metaKey)) {
+      // Don't get in the way of normal clicks — just silently return.
+      return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+    const block = findBlock(ev.target);
+    if (!block) { showToast('click: no block ancestor'); return; }
+    const text = (block.textContent || '').trim();
+    if (text.length < 2) { showToast('click: empty block'); return; }
+    showToast('looking up "' + text.slice(0, 20) + '..."');
+    try {
+      const r = await fetch('/open-in-editor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await r.json();
+      if (data && data.found && data.file) {
+        showToast('→ ' + data.file.split(/[\\\/]/).pop() + ':' + data.line);
+      } else {
+        showToast('source not found for: ' + text.slice(0, 30));
+      }
+    } catch (e) { showToast('fetch err: ' + e.message); }
+  }
+
+  function showToast(msg) {
+    let t = document.getElementById('__src_toast__');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '__src_toast__';
+      t.style.cssText = 'position:fixed;bottom:8px;left:8px;background:rgba(0,0,0,.75);' +
+        'color:#fff;font:12px monospace;padding:4px 10px;border-radius:4px;z-index:9999;' +
+        'pointer-events:none;transition:opacity .3s;';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._hide);
+    t._hide = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+  }
+
+  document.addEventListener('click', jumpToSource, true);
+})();
+</script>
