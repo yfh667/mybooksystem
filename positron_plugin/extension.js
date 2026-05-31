@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const net = require('net');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const sessions = new Map();
 let output;
@@ -1414,9 +1414,30 @@ function getToolDir(context) {
 function getQuartoPath() {
   const configured = vscode.workspace.getConfiguration('qmdtool').get('quartoPath', '');
   if (configured) return configured;
-  const defaultPath = 'C:\\Program Files\\Quarto\\bin\\quarto.exe';
-  if (fs.existsSync(defaultPath)) return defaultPath;
+  const detected = detectQuartoPath();
+  if (detected) return detected;
   return 'quarto';
+}
+
+function detectQuartoPath() {
+  const candidates = [
+    'C:\\Program Files\\Quarto\\bin\\quarto.exe',
+    'C:\\Program Files (x86)\\Quarto\\bin\\quarto.exe',
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Quarto', 'bin', 'quarto.exe') : '',
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Local', 'Programs', 'Quarto', 'bin', 'quarto.exe') : '',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  const where = process.platform === 'win32' ? 'where.exe' : 'which';
+  const result = spawnSync(where, ['quarto'], { encoding: 'utf8', windowsHide: true });
+  if (result.status === 0 && result.stdout) {
+    const first = result.stdout.split(/\r?\n/).map(s => s.trim()).find(Boolean);
+    if (first) return first;
+  }
+  return '';
 }
 
 function getNodePath() {
@@ -1626,6 +1647,9 @@ async function newProject(context, uri) {
   output.appendLine(`\n[new-project] target = ${targetDir}`);
 
   const created = copyTemplate(templateDir, targetDir);
+  const quartoPath = detectQuartoPath();
+  const settingsChanged = ensureWorkspaceSettings(targetDir, quartoPath);
+  if (settingsChanged.length) created.push(...settingsChanged);
 
   const qmdDir = path.join(targetDir, 'qmd');
   if (!fs.existsSync(qmdDir)) {
@@ -1680,6 +1704,40 @@ function templateNameToReal(name) {
   if (name === 'gitignore') return '.gitignore';
   if (name === 'dot-vscode') return '.vscode';
   return name;
+}
+
+function ensureWorkspaceSettings(targetDir, quartoPath) {
+  const settingsPath = path.join(targetDir, '.vscode', 'settings.json');
+  const changed = [];
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  let settings = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    } catch (_) {
+      return changed;
+    }
+  }
+
+  let dirty = false;
+  if (settings['files.encoding'] !== 'utf8') {
+    settings['files.encoding'] = 'utf8';
+    dirty = true;
+  }
+  if (settings['files.autoGuessEncoding'] !== false) {
+    settings['files.autoGuessEncoding'] = false;
+    dirty = true;
+  }
+  if (quartoPath && !settings['qmdtool.quartoPath']) {
+    settings['qmdtool.quartoPath'] = quartoPath;
+    dirty = true;
+  }
+
+  if (dirty) {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+    changed.push('.vscode\\settings.json');
+  }
+  return changed;
 }
 
 function updateNewProjectStatusBar() {

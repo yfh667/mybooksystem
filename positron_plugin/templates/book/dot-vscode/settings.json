@@ -1,4 +1,6 @@
 {
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
   "markdown.copyFiles.destination": {
     "**/*.qmd": "images/${fileName}",
     "**/*.md":  "images/${fileName}"
