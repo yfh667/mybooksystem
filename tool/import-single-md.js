@@ -124,7 +124,7 @@ bibliography: references.bib
 csl: ieee.csl
 link-citations: true
 link-bibliography: true
-suppress-bibliography: true
+suppress-bibliography: false
 
 format:
   html:

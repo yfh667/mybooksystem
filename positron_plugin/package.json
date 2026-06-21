@@ -131,6 +131,16 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically render PDF after HTML when qmd/yml files change in the active workspace. Keep this off for large books and render PDF manually."
+        },
+        "qmdtool.openSourceInVisualMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open QMD source jumps from the HTML preview with the Quarto visual editor when available."
+        },
+        "qmdtool.visualEditorViewType": {
+          "type": "string",
+          "default": "quarto.visualEditor",
+          "description": "VS Code custom editor view type used for Quarto visual mode. Change only if your Quarto extension exposes a different view type."
         }
       }
     }

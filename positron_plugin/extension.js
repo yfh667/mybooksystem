@@ -368,6 +368,7 @@ function organizeConvertedProject(root) {
   const after = before
     .replace(/^bibliography:\s*references\.bib\s*$/m, 'bibliography: .qmdtool/references.bib')
     .replace(/^csl:\s*ieee\.csl\s*$/m, 'csl: .qmdtool/ieee.csl')
+    .replace(/^suppress-bibliography:\s*true\s*$/m, 'suppress-bibliography: false')
     .replace(/^(\s*-\s*)autoreload\.html\s*$/m, '$1.qmdtool/autoreload.html');
 
   if (after !== before) {
@@ -461,7 +462,7 @@ async function startStaticServer(session, toolDir) {
       if (rawUrl.pathname === '/find-source' && req.method === 'POST') {
         readJsonBody(req, (err, body) => {
           if (err) return sendText(res, 400, `bad request: ${err.message}`);
-          sendJson(res, findSource(root, body.text || '') || { found: false });
+          sendJson(res, sourceFromRequest(root, body) || { found: false });
         });
         return;
       }
@@ -489,7 +490,7 @@ async function startStaticServer(session, toolDir) {
       if (rawUrl.pathname === '/open-in-editor' && req.method === 'POST') {
         readJsonBody(req, async (err, body) => {
           if (err) return sendText(res, 400, `bad request: ${err.message}`);
-          const result = findSource(root, body.text || '') || { found: false };
+          const result = sourceFromRequest(root, body) || { found: false };
           if (result.found) {
             await openSource(result.file, result.line);
           }
@@ -582,7 +583,7 @@ function serveHtmlWithFallback(res, file, session, bookDir) {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
       });
-      res.end(injectSourceJump(content));
+      res.end(previewHtmlForClient(session.root, file, content, bookDir));
       return;
     }
 
@@ -594,7 +595,7 @@ function serveHtmlWithFallback(res, file, session, bookDir) {
         'x-qmdtool-cache': 'stale',
       });
       const text = cached.bytes.toString('utf8');
-      res.end(injectSourceJump(text));
+      res.end(previewHtmlForClient(session.root, file, text, bookDir));
       return;
     }
 
@@ -1040,6 +1041,12 @@ function injectSourceJump(html) {
   }, true);
 
   const BLOCKS = new Set(['P','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','PRE','TD','TH','DT','DD','FIGCAPTION']);
+  function inDocumentContent(node) {
+    return Boolean(node && node.closest && node.closest('#quarto-document-content'));
+  }
+  function isInteractive(node) {
+    return Boolean(node && node.closest && node.closest('a[href],button,input,select,textarea,summary,[role="button"],[data-bs-toggle]'));
+  }
   function block(node) {
     let el = node;
     while (el && el !== document.body) {
@@ -1047,6 +1054,17 @@ function injectSourceJump(html) {
       el = el.parentElement;
     }
     return null;
+  }
+  function blockIndex(target) {
+    const blocks = Array.prototype.slice.call(document.querySelectorAll(Array.from(BLOCKS).map(function(t){ return t.toLowerCase(); }).join(',')));
+    return blocks.indexOf(target);
+  }
+  function sourceMarker(target, blockEl) {
+    if (target && target.closest) {
+      const direct = target.closest('[data-qmd-file][data-qmd-line]');
+      if (direct) return direct;
+    }
+    return blockEl && blockEl.closest ? blockEl.closest('[data-qmd-file][data-qmd-line]') : null;
   }
   function toast(msg) {
     let t = document.getElementById('__qmdtool_source_toast__');
@@ -1063,6 +1081,7 @@ function injectSourceJump(html) {
   }
   async function jump(ev) {
     if (ev.type === 'click' && !(ev.ctrlKey || ev.metaKey)) return;
+    if (!inDocumentContent(ev.target) || isInteractive(ev.target)) return;
     if (ev.target && ev.target.closest && ev.target.closest('img')) return;
     const b = block(ev.target);
     if (!b) return;
@@ -1072,10 +1091,17 @@ function injectSourceJump(html) {
     ev.stopPropagation();
     toast('opening source...');
     try {
+      const marker = sourceMarker(ev.target, b);
+      const markerLine = marker ? Number(marker.getAttribute('data-qmd-line')) : 0;
+      const payload = { text, path: stableHtmlPath(), tag: b.tagName, index: blockIndex(b) };
+      if (marker && Number.isFinite(markerLine) && markerLine > 0) {
+        payload.file = marker.getAttribute('data-qmd-file') || '';
+        payload.line = markerLine;
+      }
       const r = await fetch('/open-in-editor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify(payload)
       });
       const data = await r.json();
       if (data && data.found) toast('opened ' + data.file.split(/[\\\\/]/).pop() + ':' + data.line);
@@ -1122,33 +1148,317 @@ function sendText(res, status, text) {
   res.end(text);
 }
 
-function findSource(root, searchText) {
+function previewHtmlForClient(root, htmlFile, html, bookDir) {
+  try {
+    return injectSourceJump(annotateHtmlSource(root, htmlFile, html, bookDir));
+  } catch (err) {
+    output && output.appendLine(`[source-map] annotation failed for ${htmlFile}: ${err && err.message ? err.message : err}`);
+    return injectSourceJump(html);
+  }
+}
+
+function sourceFromRequest(root, body) {
+  return sourceFromMarker(root, body && body.file, body && body.line)
+    || findSource(root, body && body.text || '', body && body.path || '');
+}
+
+function sourceFromMarker(root, fileValue, lineValue) {
+  const line = Number(lineValue);
+  if (!fileValue || !Number.isFinite(line) || line < 1) return null;
+  let raw = String(fileValue || '').split('#')[0].split('?')[0];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch (_) {}
+  const candidate = path.isAbsolute(raw) ? raw : path.join(root, raw.replace(/[\\/]+/g, path.sep));
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  if (!isInsidePath(resolvedRoot, resolvedCandidate)) return null;
+  if (!resolvedCandidate.toLowerCase().endsWith('.qmd')) return null;
+  if (!fs.existsSync(resolvedCandidate) || !fs.statSync(resolvedCandidate).isFile()) return null;
+  return { found: true, file: resolvedCandidate, line: Math.floor(line) };
+}
+
+function annotateHtmlSource(root, htmlFile, html, bookDir) {
+  const sourceTimeline = sourceTimelineForHtmlFile(root, htmlFile, bookDir);
+  if (sourceTimeline.length === 0) return html;
+
+  const mainOpen = html.search(/<main\b[^>]*id=["']quarto-document-content["'][^>]*>/i);
+  if (mainOpen < 0) return html;
+  const mainOpenEnd = html.indexOf('>', mainOpen);
+  if (mainOpenEnd < 0) return html;
+  const mainClose = html.indexOf('</main>', mainOpenEnd + 1);
+  if (mainClose < 0) return html;
+
+  let cursor = { chunk: 0, line: 0 };
+  const body = html.slice(mainOpenEnd + 1, mainClose);
+  const annotated = body.replace(/<(p|h[1-6]|li|blockquote|pre|td|th|dt|dd|figcaption)\b([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, inner) => {
+    if (/\sdata-qmd-line\s*=|\sdata-qmd-file\s*=/i.test(attrs)) return match;
+    const text = htmlBlockText(inner);
+    if (text.length < 2) return match;
+    const found = findInSourceTimeline(sourceTimeline, sourceSearchCandidates(text), cursor);
+    if (!found) return match;
+    cursor = found.cursor;
+    const marker = ` data-qmd-file="${escapeHtmlAttribute(relativeSourcePath(root, found.file))}" data-qmd-line="${found.line}"`;
+    return `<${tag}${attrs}${marker}>${inner}</${tag}>`;
+  });
+
+  return html.slice(0, mainOpenEnd + 1) + annotated + html.slice(mainClose);
+}
+
+function sourceTimelineForHtmlFile(root, htmlFile, bookDir) {
+  const sourceFile = qmdFileForHtmlPath(root, htmlPathForBookFile(bookDir, htmlFile));
+  return sourceFile && fs.existsSync(sourceFile) ? buildSourceTimeline(root, sourceFile) : [];
+}
+
+function sourceTimelineForHtmlPath(root, htmlPath) {
+  const sourceFile = qmdFileForHtmlPath(root, htmlPath);
+  return sourceFile && fs.existsSync(sourceFile) ? buildSourceTimeline(root, sourceFile) : [];
+}
+
+function buildSourceTimeline(root, file, stack = new Set()) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedFile = path.resolve(file);
+  if (!isInsidePath(resolvedRoot, resolvedFile)) return [];
+  if (stack.has(resolvedFile)) return [];
+  const lines = readSourceLines(resolvedFile);
+  if (!lines) return [];
+
+  const nextStack = new Set(stack);
+  nextStack.add(resolvedFile);
+  const chunks = [];
+  let segmentStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const includeTarget = includeTargetFromLine(lines[i]);
+    if (!includeTarget) continue;
+    addSourceChunk(chunks, resolvedFile, lines.slice(segmentStart, i), segmentStart + 1);
+    const includeFile = resolveIncludeFile(resolvedRoot, resolvedFile, includeTarget);
+    if (includeFile) chunks.push(...buildSourceTimeline(resolvedRoot, includeFile, nextStack));
+    segmentStart = i + 1;
+  }
+  addSourceChunk(chunks, resolvedFile, lines.slice(segmentStart), segmentStart + 1);
+  return chunks;
+}
+
+function addSourceChunk(chunks, file, lines, baseLine) {
+  if (!lines.length) return;
+  chunks.push({ file, baseLine, index: buildSourceIndex(lines) });
+}
+
+function includeTargetFromLine(line) {
+  const match = String(line || '').match(/^\s*\{\{<\s+include\s+(.+?)\s*>\}\}\s*$/);
+  if (!match) return null;
+  const raw = match[1].trim();
+  const quoted = raw.match(/^["'](.+?)["']$/);
+  return quoted ? quoted[1] : raw.split(/\s+/)[0];
+}
+
+function resolveIncludeFile(resolvedRoot, currentFile, includeTarget) {
+  const candidate = path.resolve(path.dirname(currentFile), includeTarget.replace(/[\\/]+/g, path.sep));
+  if (!isInsidePath(resolvedRoot, candidate)) return null;
+  if (!candidate.toLowerCase().endsWith('.qmd')) return null;
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return null;
+  return candidate;
+}
+
+function htmlPathForBookFile(bookDir, file) {
+  const rel = path.relative(bookDir, file).replace(/\\/g, '/');
+  return `/${rel}`;
+}
+
+function relativeSourcePath(root, file) {
+  return path.relative(root, file).replace(/\\/g, '/');
+}
+
+function htmlBlockText(html) {
+  return decodeHtmlEntities(String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (match, value) => codePointEntity(match, Number(value)))
+    .replace(/&#x([0-9a-f]+);/gi, (match, value) => codePointEntity(match, parseInt(value, 16)));
+}
+
+function codePointEntity(fallback, value) {
+  if (!Number.isFinite(value) || value < 0 || value > 0x10ffff) return fallback;
+  try {
+    return String.fromCodePoint(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function findSource(root, searchText, htmlPath = '') {
   const text = String(searchText || '').replace(/\s+/g, ' ').trim();
   if (text.length < 2) return null;
 
-  const candidates = [];
-  for (const len of [100, 70, 40, 20, 10, 5]) {
-    const candidate = text.slice(0, len);
-    if (candidate.length >= 2 && !candidates.includes(candidate)) candidates.push(candidate);
-  }
-
+  const candidates = sourceSearchCandidates(text);
   const files = collectQmdFiles(path.join(root, 'qmd'));
+  const pageFile = qmdFileForHtmlPath(root, htmlPath);
+  const timelineFound = findInSourceTimeline(sourceTimelineForHtmlPath(root, htmlPath), candidates);
+  if (timelineFound) return { found: true, file: timelineFound.file, line: timelineFound.line };
+  const prioritized = pageFile && fs.existsSync(pageFile)
+    ? [pageFile, ...files.filter((file) => path.normalize(file) !== path.normalize(pageFile))]
+    : files;
+
+  for (const file of prioritized) {
+    const found = findInSourceFile(file, candidates);
+    if (found) return found;
+  }
+  return null;
+}
+
+function sourceSearchCandidates(text) {
+  const variants = [
+    text,
+    text.replace(/^\s*\d+(?:\.\d+)*\.?\s+/, ''),
+    text.replace(/\[[0-9,\-\s]+\]/g, ' '),
+    text.replace(/[()[\]{}*_`"'“”‘’]/g, ' '),
+    normalizeSearchText(text),
+  ];
+  const candidates = [];
+  for (const variant of variants) {
+    const compact = String(variant || '').replace(/\s+/g, ' ').trim();
+    for (const len of [180, 120, 80, 50, 30, 18, 10, 5]) {
+      const candidate = compact.slice(0, len);
+      if (candidate.length >= 2 && !candidates.includes(candidate)) candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
+function normalizeSearchText(text) {
+  return String(text || '')
+    .replace(/\[[0-9,\-\s]+\]/g, ' ')
+    .replace(/\\[a-zA-Z]+|\\./g, ' ')
+    .replace(/[$*_`#>|[\]{}()"'“”‘’。，、；;：:！？!?.,，\-—–]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function findInSourceFile(file, candidates, startLine = 0) {
+  const index = readSourceIndex(file);
+  return index ? findInSourceIndex(file, index, candidates, startLine, true) : null;
+}
+
+function readSourceIndex(file) {
+  const lines = readSourceLines(file);
+  return lines ? buildSourceIndex(lines) : null;
+}
+
+function readSourceLines(file) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  } catch (_) {
+    return null;
+  }
+  return lines;
+}
+
+function buildSourceIndex(lines) {
+  return {
+    lines,
+    windows: lines.map((_, i) => {
+      const text = lines.slice(i, i + 6).join(' ').replace(/\s+/g, ' ').trim();
+      return { text, normalized: normalizeSearchText(text) };
+    }),
+  };
+}
+
+function findInSourceLines(file, lines, candidates, startLine = 0, wrap = true) {
+  return findInSourceIndex(file, buildSourceIndex(lines), candidates, startLine, wrap);
+}
+
+function findInSourceTimeline(timeline, candidates, cursor = { chunk: 0, line: 0 }) {
+  if (!timeline || timeline.length === 0) return null;
+  const startChunk = Math.max(0, Math.min(timeline.length - 1, Number(cursor.chunk) || 0));
+  const startLine = Math.max(0, Number(cursor.line) || 0);
+  for (let chunkIndex = startChunk; chunkIndex < timeline.length; chunkIndex++) {
+    const chunk = timeline[chunkIndex];
+    const localStart = chunkIndex === startChunk ? startLine : 0;
+    const found = findInSourceIndex(chunk.file, chunk.index, candidates, localStart, false);
+    if (!found) continue;
+    return {
+      found: true,
+      file: chunk.file,
+      line: chunk.baseLine + found.line - 1,
+      cursor: { chunk: chunkIndex, line: found.line },
+    };
+  }
+  return null;
+}
+
+function findInSourceIndex(file, index, candidates, startLine = 0, wrap = true) {
+  const lines = index.lines;
+  const start = Math.max(0, Math.min(lines.length, Number(startLine) || 0));
   for (const candidate of candidates) {
-    for (const file of files) {
-      let lines;
-      try {
-        lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
-      } catch (_) {
-        continue;
-      }
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].replace(/\s+/g, ' ').includes(candidate)) {
-          return { found: true, file, line: i + 1 };
-        }
-      }
+    const found = findCandidateInIndex(file, index, candidate, start, lines.length)
+      || (wrap && start > 0 ? findCandidateInIndex(file, index, candidate, 0, start) : null);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findCandidateInIndex(file, index, candidate, start, end) {
+  const normalizedCandidate = normalizeSearchText(candidate);
+  const lines = index.lines;
+  for (let i = start; i < end; i++) {
+    const window = index.windows[i];
+    if (window && (window.text.includes(candidate) || (normalizedCandidate.length >= 2 && window.normalized.includes(normalizedCandidate)))) {
+      return { found: true, file, line: sourceLineForWindow(lines, i, 6, candidate, normalizedCandidate) };
     }
   }
   return null;
+}
+
+function sourceLineForWindow(lines, start, span, candidate, normalizedCandidate) {
+  for (let i = start; i < start + span && i < lines.length; i++) {
+    const lineText = lines[i].replace(/\s+/g, ' ').trim();
+    if (lineText.includes(candidate) || (normalizedCandidate.length >= 2 && normalizeSearchText(lineText).includes(normalizedCandidate))) {
+      return i + 1;
+    }
+  }
+  for (let i = start; i < start + span && i < lines.length; i++) {
+    if (lines[i].trim()) return i + 1;
+  }
+  return start + 1;
+}
+
+function qmdFileForHtmlPath(root, htmlPath) {
+  let raw = String(htmlPath || '').split('#')[0].split('?')[0];
+  if (!raw || raw === '/') raw = '/index.html';
+  try {
+    raw = decodeURIComponent(raw);
+  } catch (_) {}
+  raw = raw.replace(/^\/+/, '');
+  if (!raw.toLowerCase().endsWith('.html')) return null;
+  const relative = raw.replace(/\.html$/i, '.qmd').replace(/[\\/]+/g, path.sep);
+  const candidate = path.join(root, relative);
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  if (!resolvedCandidate.startsWith(resolvedRoot + path.sep) && resolvedCandidate !== resolvedRoot) return null;
+  return candidate;
 }
 
 function collectQmdFiles(dir, out = []) {
@@ -1164,14 +1474,52 @@ function collectQmdFiles(dir, out = []) {
 }
 
 async function openSource(file, line) {
-  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-  const editor = await vscode.window.showTextDocument(doc, {
-    viewColumn: vscode.ViewColumn.One,
-    preview: false,
-  });
+  const uri = vscode.Uri.file(file);
   const pos = new vscode.Position(Math.max(0, line - 1), 0);
+  const existingEditor = findVisibleTextEditor(file);
+  if (existingEditor) {
+    await revealInTextEditor(existingEditor.document, pos, existingEditor.viewColumn);
+    return;
+  }
+
+  const existingTab = findOpenTabForFile(file);
+  await revealInTextEditor(uri, pos, existingTab ? existingTab.viewColumn : vscode.ViewColumn.One);
+}
+
+function findVisibleTextEditor(file) {
+  const target = normalizeFilePath(file);
+  return vscode.window.visibleTextEditors.find((editor) => normalizeFilePath(editor.document.uri.fsPath) === target);
+}
+
+function findOpenTabForFile(file) {
+  if (!vscode.window.tabGroups) return null;
+  const target = normalizeFilePath(file);
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      const inputUri = input && (input.uri || input.modified || input.original);
+      if (!inputUri || normalizeFilePath(inputUri.fsPath) !== target) continue;
+      return { tab, viewColumn: group.viewColumn };
+    }
+  }
+  return null;
+}
+
+async function revealInTextEditor(documentOrUri, pos, viewColumn) {
+  const doc = documentOrUri.uri ? documentOrUri : await vscode.workspace.openTextDocument(documentOrUri);
+  const range = new vscode.Range(pos, pos);
+  const editor = await vscode.window.showTextDocument(doc, {
+    viewColumn: viewColumn || vscode.ViewColumn.One,
+    preview: false,
+    selection: range,
+  });
   editor.selection = new vscode.Selection(pos, pos);
-  editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  return editor;
+}
+
+function normalizeFilePath(file) {
+  return path.normalize(file || '').toLowerCase();
 }
 
 function setupWatchers(context, session) {
@@ -1461,10 +1809,15 @@ function safeJoin(root, requestPath) {
   const clean = requestPath.replace(/^[/\\]+/, '');
   const target = path.resolve(root, clean);
   const resolvedRoot = path.resolve(root);
-  if (target !== resolvedRoot && !target.startsWith(resolvedRoot + path.sep)) {
+  if (!isInsidePath(resolvedRoot, target)) {
     throw new Error('Invalid path');
   }
   return target;
+}
+
+function isInsidePath(resolvedRoot, resolvedTarget) {
+  const rootWithSep = resolvedRoot.endsWith(path.sep) ? resolvedRoot : resolvedRoot + path.sep;
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(rootWithSep);
 }
 
 function sanitizeHtmlPath(value) {
